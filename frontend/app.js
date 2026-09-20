@@ -709,14 +709,16 @@ function renderStats(sessions) {
   const hr = sessions.map((s) => s.heart_rate_bpm);
   const br = sessions.map((s) => s.breathing_rate_bpm);
 
+  // Two-Signal Rule (DESIGN.md): coral for heart-rate data, amber for
+  // breathing-rate data, neutral for anything that isn't a signal reading.
   const cards = [
-    [sessions.length, "Sessions"],
-    [Math.round(avg(hr)), "Avg HR (bpm)"],
-    [Math.round(avg(br)), "Avg BR (br/min)"],
-    [Math.min(...hr).toFixed(0) + "-" + Math.max(...hr).toFixed(0), "HR range"],
+    [sessions.length, "Sessions", ""],
+    [Math.round(avg(hr)), "Avg HR (bpm)", "signal-hr"],
+    [Math.round(avg(br)), "Avg BR (br/min)", "signal-br"],
+    [Math.min(...hr).toFixed(0) + "–" + Math.max(...hr).toFixed(0), "HR range", "signal-hr"],
   ];
   historyStatsEl.innerHTML = cards
-    .map(([value, label]) => `<div class="stat-mini"><div class="stat-mini-value">${value}</div><div class="stat-mini-label">${label}</div></div>`)
+    .map(([value, label, cls]) => `<div class="stat-mini"><div class="stat-mini-value ${cls}">${value}</div><div class="stat-mini-label">${label}</div></div>`)
     .join("");
 }
 
