@@ -5,3 +5,4 @@ __pycache__/
 backend/vitals.db
 *.db
 .DS_Store
+CLAUDE.md
