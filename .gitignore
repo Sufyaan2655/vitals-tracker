@@ -6,3 +6,6 @@ backend/vitals.db
 *.db
 .DS_Store
 CLAUDE.md
+PRODUCT.md
+DESIGN.md
+.impeccable/
