@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Vitals Tracker</title>
+<link rel="stylesheet" href="style.css" />
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Vitals Tracker</h1>
+      <p class="subtitle">Heart rate &amp; breathing rate, extracted from your webcam. No wearable required.</p>
+    </header>
+
+    <section class="card">
+      <label class="field">
+        <span>Your name</span>
+        <input id="username" type="text" placeholder="e.g. sufyaan" autocomplete="off" />
+      </label>
+
+      <div class="camera-row">
+        <video id="preview" autoplay muted playsinline></video>
+        <div class="camera-controls">
+          <button id="startCamera" class="btn">Enable camera</button>
+          <button id="recordBtn" class="btn btn-primary" disabled>Record 15s clip</button>
+          <div id="countdown" class="countdown"></div>
+          <p class="hint">Sit still, face the camera, good even lighting works best.</p>
+        </div>
+      </div>
+
+      <div id="status" class="status"></div>
+
+      <div id="results" class="results hidden">
+        <div class="stat">
+          <div class="stat-value" id="hrValue">--</div>
+          <div class="stat-label">Heart rate (bpm)</div>
+          <div class="stat-confidence" id="hrConfidence"></div>
+        </div>
+        <div class="stat">
+          <div class="stat-value" id="brValue">--</div>
+          <div class="stat-label">Breathing rate (br/min)</div>
+          <div class="stat-confidence" id="brConfidence"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Trends</h2>
+      <canvas id="trendsChart" height="120"></canvas>
+      <p id="noHistory" class="hint">No sessions yet - record a clip above to start your history.</p>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

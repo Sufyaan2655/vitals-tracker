@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/vitals.db
+*.db
+.DS_Store
