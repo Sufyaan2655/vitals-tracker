@@ -42,6 +42,18 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def no_cache_frontend(request, call_next):
+    # This app is under active local iteration - browsers otherwise cache
+    # index.html/app.js/style.css heuristically (no explicit Cache-Control
+    # from StaticFiles) and a plain refresh can keep serving a stale UI even
+    # after the server has the new files. Force revalidation on every load.
+    response = await call_next(request)
+    if not request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
