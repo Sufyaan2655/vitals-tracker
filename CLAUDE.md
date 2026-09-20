@@ -129,6 +129,12 @@ global Python install. Resolved by using a venv (`python -m venv venv`)
 instead of installing globally — the repo assumes venv-based setup going
 forward.
 
+**`starlette.testclient` requires `httpx2`.** A newer starlette (1.x) split
+its test-client HTTP dependency into a separate `httpx2` package; without it
+`test_api.py` fails to collect with `RuntimeError: ... requires the httpx2
+package`. Added `httpx2>=2.13` to `requirements.txt` as an explicit
+dependency rather than relying on it being pulled in transitively.
+
 ## Extension roadmap (priority order)
 
 1. **Validate against a real reference sensor.** If the user has a pulse
