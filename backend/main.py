@@ -48,7 +48,7 @@ def health():
 
 
 @app.post("/api/sessions/upload")
-async def upload_session(video: UploadFile, username: str = Form(...)):
+async def upload_session(video: UploadFile, username: str = Form(...), dev_mode: bool = Form(False)):
     username = username.strip() or "anonymous"
 
     suffix = Path(video.filename or "clip.webm").suffix or ".webm"
@@ -57,7 +57,7 @@ async def upload_session(video: UploadFile, username: str = Form(...)):
         tmp_path = tmp.name
 
     try:
-        result = process_video(tmp_path)
+        result = process_video(tmp_path, include_debug=dev_mode)
     except VitalsError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001 - surface unexpected processing errors to the client
@@ -74,6 +74,17 @@ async def upload_session(video: UploadFile, username: str = Form(...)):
 @app.get("/api/sessions")
 def list_sessions(username: str):
     return db.get_sessions(username)
+
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: int, username: str):
+    # No real auth (see roadmap) - scope the delete to the matching username,
+    # same trust model as everything else here, so one typed name can't be
+    # used to guess-delete another name's session by id alone.
+    deleted = db.delete_session(session_id, username)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"deleted": session_id}
 
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"

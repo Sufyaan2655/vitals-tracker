@@ -25,6 +25,8 @@ from vitals import (
     dominant_frequency_bpm,
     extract_signals_from_frames,
     estimate_vitals_from_signals,
+    fft_spectrum,
+    forehead_roi_bounds,
     signal_quality,
     HEART_RATE_BAND_HZ,
 )
@@ -136,6 +138,50 @@ def test_estimate_vitals_from_signals_end_to_end_on_synthetic_data():
     assert abs(result["breathing_rate_bpm"] - 16) <= 1.5
     assert result["heart_rate_confidence"] > 0.2
     assert result["breathing_rate_confidence"] > 0.2
+
+
+def test_fft_spectrum_peak_matches_dominant_frequency_bpm():
+    """dev-mode's plotted spectrum must peak at the same frequency the
+    headline bpm number is derived from - otherwise the chart would mislead
+    rather than explain the estimate."""
+    fs = 30.0
+    signal = make_sine(1.2, fs, duration_s=15, noise_std=0.1, seed=5)  # 72 bpm
+    filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
+
+    freqs, magnitude = fft_spectrum(filtered, fs)
+    peak_hz = freqs[int(np.argmax(magnitude))]
+
+    expected_bpm = dominant_frequency_bpm(filtered, fs)
+    assert abs(peak_hz * 60.0 - expected_bpm) < 1e-6
+
+
+def test_forehead_roi_bounds_is_inside_face_bbox():
+    bbox = (50, 50, 100, 100)  # x, y, w, h
+    x1, y1, x2, y2 = forehead_roi_bounds(bbox)
+    assert bbox[0] <= x1 < x2 <= bbox[0] + bbox[2]
+    assert bbox[1] <= y1 < y2 <= bbox[1] + bbox[3]
+
+
+def test_estimate_vitals_from_signals_debug_arrays_match_input_length():
+    fs = 30.0
+    n = int(fs * 15)
+    t = np.arange(n) / fs
+    green_signal = 128 + 15 * np.sin(2 * np.pi * (75 / 60.0) * t)
+    chest_flow_signal = 0.5 * np.sin(2 * np.pi * (16 / 60.0) * t)
+
+    result = estimate_vitals_from_signals(green_signal, chest_flow_signal, fs, include_debug=True)
+
+    debug = result["debug"]
+    assert len(debug["green_signal_raw"]) == n
+    assert len(debug["green_signal_filtered"]) == n
+    assert len(debug["chest_signal_raw"]) == n
+    assert len(debug["chest_signal_filtered"]) == n
+    assert len(debug["hr_fft_freqs_hz"]) == len(debug["hr_fft_magnitude"])
+    assert len(debug["br_fft_freqs_hz"]) == len(debug["br_fft_magnitude"])
+
+    # include_debug=False (the default) must not pay for or expose any of this.
+    plain = estimate_vitals_from_signals(green_signal, chest_flow_signal, fs)
+    assert "debug" not in plain
 
 
 if __name__ == "__main__":

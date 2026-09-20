@@ -78,6 +78,19 @@ def dominant_frequency_bpm(signal: np.ndarray, fs: float) -> float:
     return float(freqs[peak_idx] * 60.0)
 
 
+def fft_spectrum(signal: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
+    """Return (freqs_hz, magnitude) of `signal`'s FFT - the same spectrum
+    dominant_frequency_bpm picks its peak from, exposed so a caller (dev-mode
+    debug output) can plot it."""
+    signal = np.asarray(signal, dtype=np.float64)
+    n = len(signal)
+    windowed = signal * np.hanning(n)
+    freqs = np.fft.rfftfreq(n, d=1.0 / fs)
+    magnitude = np.abs(np.fft.rfft(windowed))
+    magnitude[0] = 0.0  # ignore DC component, matches dominant_frequency_bpm
+    return freqs, magnitude
+
+
 def signal_quality(signal: np.ndarray, fs: float, band: tuple[float, float]) -> float:
     """
     Rough confidence score in [0, 1]: fraction of spectral energy inside `band`
@@ -102,14 +115,23 @@ def signal_quality(signal: np.ndarray, fs: float, band: tuple[float, float]) -> 
 # no face detector required.
 # ---------------------------------------------------------------------------
 
-def forehead_roi(frame: np.ndarray, bbox: tuple[int, int, int, int]) -> np.ndarray:
-    """Crop the forehead sub-region of a face bounding box (most motion-stable,
-    least occluded-by-glasses/beard part of the face for rPPG)."""
+def forehead_roi_bounds(bbox: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """The forehead sub-rectangle of a face bbox, as (x1, y1, x2, y2) - the
+    single source of truth for where forehead_roi crops from, also used to
+    report the ROI's location for dev-mode overlays."""
     x, y, w, h = bbox
     x1, x2 = x + int(w * 0.30), x + int(w * 0.70)
     y1, y2 = y + int(h * 0.05), y + int(h * 0.25)
+    return x1, y1, x2, y2
+
+
+def forehead_roi(frame: np.ndarray, bbox: tuple[int, int, int, int]) -> np.ndarray:
+    """Crop the forehead sub-region of a face bounding box (most motion-stable,
+    least occluded-by-glasses/beard part of the face for rPPG)."""
+    x1, y1, x2, y2 = forehead_roi_bounds(bbox)
     roi = frame[y1:y2, x1:x2]
     if roi.size == 0:
+        x, y, w, h = bbox
         roi = frame[y:y + h, x:x + w]
     return roi
 
@@ -164,9 +186,19 @@ def extract_signals_from_frames(
 
 
 def estimate_vitals_from_signals(
-    green_signal: np.ndarray, chest_flow_signal: np.ndarray, fps: float
+    green_signal: np.ndarray,
+    chest_flow_signal: np.ndarray,
+    fps: float,
+    include_debug: bool = False,
 ) -> dict:
-    """Filter + FFT both signals into a heart rate and breathing rate estimate."""
+    """Filter + FFT both signals into a heart rate and breathing rate estimate.
+
+    With `include_debug=True`, also returns the intermediate raw/filtered
+    signals and their FFT spectra under a "debug" key, so a caller (dev-mode
+    UI) can show *why* a given bpm/confidence was picked instead of just the
+    final numbers - recomputing this from the same filtered arrays the
+    estimate itself used, rather than duplicating the filtering logic.
+    """
     green_detrended = detrend(green_signal)
     hr_filtered = bandpass_filter(green_detrended, fps, *HEART_RATE_BAND_HZ)
     heart_rate = dominant_frequency_bpm(hr_filtered, fps)
@@ -177,12 +209,30 @@ def estimate_vitals_from_signals(
     breathing_rate = dominant_frequency_bpm(br_filtered, fps)
     breathing_confidence = signal_quality(br_filtered, fps, BREATHING_BAND_HZ)
 
-    return {
+    result = {
         "heart_rate_bpm": round(heart_rate, 1),
         "heart_rate_confidence": round(heart_confidence, 3),
         "breathing_rate_bpm": round(breathing_rate, 1),
         "breathing_rate_confidence": round(breathing_confidence, 3),
     }
+
+    if include_debug:
+        hr_freqs, hr_mag = fft_spectrum(hr_filtered, fps)
+        br_freqs, br_mag = fft_spectrum(br_filtered, fps)
+        result["debug"] = {
+            "green_signal_raw": np.asarray(green_signal, dtype=np.float64).tolist(),
+            "green_signal_filtered": hr_filtered.tolist(),
+            "chest_signal_raw": np.asarray(chest_flow_signal, dtype=np.float64).tolist(),
+            "chest_signal_filtered": br_filtered.tolist(),
+            "hr_fft_freqs_hz": hr_freqs.tolist(),
+            "hr_fft_magnitude": hr_mag.tolist(),
+            "br_fft_freqs_hz": br_freqs.tolist(),
+            "br_fft_magnitude": br_mag.tolist(),
+            "heart_rate_band_hz": list(HEART_RATE_BAND_HZ),
+            "breathing_band_hz": list(BREATHING_BAND_HZ),
+        }
+
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +281,7 @@ def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
     return frames, fps
 
 
-def process_video(video_path: str) -> dict:
+def process_video(video_path: str, include_debug: bool = False) -> dict:
     frames, fps = read_frames(video_path)
 
     min_frames = int(fps * 5)
@@ -249,8 +299,27 @@ def process_video(video_path: str) -> dict:
 
     bboxes = _smooth_bboxes(raw_bboxes)
     green_signal, chest_flow_signal = extract_signals_from_frames(frames, bboxes)
-    result = estimate_vitals_from_signals(green_signal, chest_flow_signal, fps)
+    result = estimate_vitals_from_signals(green_signal, chest_flow_signal, fps, include_debug=include_debug)
     result["fps"] = round(fps, 2)
     result["num_frames"] = len(frames)
     result["face_detection_rate"] = round(detected_count / len(frames), 3)
+
+    if include_debug:
+        height, width = frames[0].shape[:2]
+        forehead_boxes = []
+        chest_boxes = []
+        for b in bboxes:
+            fx1, fy1, fx2, fy2 = forehead_roi_bounds(b)
+            forehead_boxes.append([fx1, fy1, fx2 - fx1, fy2 - fy1])
+            cy1, cy2, cx1, cx2 = chest_roi_bounds((height, width), b)
+            chest_boxes.append([cx1, cy1, cx2 - cx1, cy2 - cy1])
+
+        result["debug"]["frame_width"] = width
+        result["debug"]["frame_height"] = height
+        result["debug"]["frame_times_s"] = [round(i / fps, 4) for i in range(len(frames))]
+        result["debug"]["face_detected"] = [b is not None for b in raw_bboxes]
+        result["debug"]["face_bboxes"] = [list(b) for b in bboxes]
+        result["debug"]["forehead_roi_bboxes"] = forehead_boxes
+        result["debug"]["chest_roi_bboxes"] = chest_boxes
+
     return result

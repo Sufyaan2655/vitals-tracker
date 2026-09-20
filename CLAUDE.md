@@ -158,12 +158,51 @@ dependency rather than relying on it being pulled in transitively.
 4. **Real auth.** Replace the plain `username` string with actual
    signup/login (hashed passwords or OAuth) so session history is properly
    private per person instead of trusted to whatever name is typed in.
-5. **Live tracking-quality feedback** during recording (e.g. show
+5. **Live tracking-quality feedback** *during* recording (e.g. show
    face-detection rate in the last second) so a bad recording is obvious
-   before the 15 seconds finish, not after.
+   before the 15 seconds finish, not after. Partially addressed: "dev mode"
+   (see below) now shows this *after* the fact (replay with face/ROI boxes
+   overlaid + raw/filtered signal and FFT charts), which covers the
+   "confidence feels opaque" complaint, but there's still no in-recording
+   feedback loop — that's the part still open.
 6. **Deployment.** HTTPS via Caddy/Let's Encrypt if it needs to run
    somewhere other than localhost; swap SQLite for Postgres if it needs to
    support concurrent multi-user traffic.
+
+## Dev mode / post-hoc transparency (added after handoff)
+
+The user felt HR/BR confidence scores were opaque ("feels off", no way to see
+*why*). Rather than tuning the confidence formula blind, added a "dev mode"
+toggle (`dev_mode` form field on `POST /api/sessions/upload`) that returns
+per-frame face/forehead-ROI/chest-ROI bounding boxes, raw + filtered signal
+arrays, and FFT spectra alongside the normal result. The frontend replays the
+just-recorded clip with the boxes drawn on top (canvas overlay synced to
+`<video>` playback via `currentTime * fps`) and renders the signal/FFT data
+as Chart.js charts. This payload is deliberately *not* persisted to SQLite —
+it's only returned on the request that asked for it, kept out of `db.py`
+entirely so history storage stays unchanged.
+
+Also added while in there: `DELETE /api/sessions/{id}?username=X` (scoped to
+matching username, same no-auth trust model as the rest of the app), a CSV
+export of history, and a confidence-over-time trend chart alongside the
+existing bpm trend chart.
+
+Single source of truth is kept in `vitals.py`: `forehead_roi_bounds()` is now
+the one place forehead-crop math lives (both the actual pixel crop and the
+debug-overlay rectangle call it), and the debug FFT/signal data is built by
+reusing the exact same filtered arrays the bpm estimate came from
+(`estimate_vitals_from_signals(..., include_debug=True)`), not a
+recomputation — so the dev-mode chart can never show something inconsistent
+with the headline number.
+
+**Known gap in my own synthetic test video generation:** OpenCV's `mp4v`
+fourcc (used in `test_api.py`'s synthetic clips) produces MPEG-4 Part 2,
+which Chrome's `<video>` element cannot decode
+(`DEMUXER_ERROR_NO_SUPPORTED_STREAMS`). This only affects trying to preview
+a *synthetic test clip* in a real browser - it does not affect real usage,
+since actual recordings are `video/webm;codecs=vp8` from `MediaRecorder`,
+which Chrome supports natively. Don't "fix" this by changing the test
+fourcc; it's irrelevant to what ships.
 
 ## Working conventions established so far
 

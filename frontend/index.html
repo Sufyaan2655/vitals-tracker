@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Vitals Tracker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9D%A4%EF%B8%8F</text></svg>" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
@@ -25,6 +26,11 @@
         <div class="camera-controls">
           <button id="startCamera" class="btn">Enable camera</button>
           <button id="recordBtn" class="btn btn-primary" disabled>Record 15s clip</button>
+          <label class="toggle">
+            <input type="checkbox" id="devMode" />
+            <span class="toggle-track"><span class="toggle-thumb"></span></span>
+            <span class="toggle-label">Dev mode - show face/ROI tracking &amp; raw signals</span>
+          </label>
           <div id="countdown" class="countdown"></div>
           <p class="hint">Sit still, face the camera, good even lighting works best.</p>
         </div>
@@ -46,10 +52,65 @@
       </div>
     </section>
 
+    <section id="devInsights" class="card hidden">
+      <h2>Dev insights</h2>
+      <p class="hint">What the algorithm actually looked at and measured on your last clip.</p>
+
+      <div class="overlay-wrap">
+        <video id="replayVideo" playsinline muted controls loop></video>
+        <canvas id="overlayCanvas"></canvas>
+      </div>
+      <div class="legend">
+        <span class="legend-item"><span class="swatch swatch-face"></span>Face detection</span>
+        <span class="legend-item"><span class="swatch swatch-forehead"></span>Forehead ROI (heart rate signal)</span>
+        <span class="legend-item"><span class="swatch swatch-chest"></span>Chest/shoulder ROI (breathing signal)</span>
+      </div>
+      <p id="faceDropoutWarning" class="hint warning hidden"></p>
+
+      <div class="chart-grid">
+        <div class="chart-box">
+          <h3>Heart-rate signal (forehead green channel)</h3>
+          <canvas id="hrSignalChart" height="180"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Heart-rate spectrum (FFT)</h3>
+          <canvas id="hrFftChart" height="180"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Breathing signal (chest motion)</h3>
+          <canvas id="brSignalChart" height="180"></canvas>
+        </div>
+        <div class="chart-box">
+          <h3>Breathing spectrum (FFT)</h3>
+          <canvas id="brFftChart" height="180"></canvas>
+        </div>
+      </div>
+    </section>
+
     <section class="card">
-      <h2>Trends</h2>
+      <h2>History</h2>
+      <div id="historyStats" class="stats-row"></div>
       <canvas id="trendsChart" height="120"></canvas>
+      <canvas id="confidenceChart" height="100"></canvas>
       <p id="noHistory" class="hint">No sessions yet - record a clip above to start your history.</p>
+
+      <div id="historyTableWrap" class="hidden">
+        <div class="history-actions">
+          <button id="exportCsv" class="btn">Export CSV</button>
+        </div>
+        <table id="historyTable" class="history-table">
+          <thead>
+            <tr>
+              <th>When</th>
+              <th>HR</th>
+              <th>BR</th>
+              <th>Confidence (HR / BR)</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
     </section>
   </div>
 

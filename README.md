@@ -36,21 +36,55 @@ noise spreads it out. Low confidence usually means bad lighting, movement
 during the clip, or the face wasn't tracked well — worth showing rather than
 hiding.
 
+## Dev mode
+
+Confidence and bpm numbers alone don't explain *why* a reading came out the
+way it did. Flip on "Dev mode" before recording a clip and the app also
+returns, and renders:
+
+- **Tracking overlay** — the just-recorded clip replayed with the actual face
+  bounding box, forehead ROI (the heart-rate source region), and chest/shoulder
+  ROI (the breathing source region) drawn on top, frame-synced. Frames where
+  face detection dropped out are flagged red (the pipeline reuses the last
+  known box rather than skipping the frame — a real source of noise).
+- **Raw vs. filtered signal charts** — the forehead green-channel series and
+  chest optical-flow series, before and after the Butterworth band-pass, so
+  you can see what the filter actually removed.
+- **FFT spectra** — the same spectrum the bpm estimate is picked from, with
+  the physiologically plausible band and the detected peak marked, so a
+  suspiciously confident-but-wrong reading (e.g. a peak that's technically
+  inside the band but clearly not a real pulse) is visible instead of hidden
+  behind a single percentage.
+
+This data isn't persisted — it's returned only on the upload that requested
+it (`dev_mode=true`), not stored with the session in SQLite.
+
 ## Architecture
 
 ```
 frontend/            served as static files by the backend itself
-  index.html         camera capture UI + results + trends chart
+  index.html         camera capture UI + dev-mode overlay/charts + history
   app.js              getUserMedia -> MediaRecorder -> upload -> render
   style.css
 
 backend/
   vitals.py          the actual signal-processing pipeline (pure + testable)
-  main.py            FastAPI app: upload endpoint, history endpoint
+  main.py            FastAPI app: upload/history/delete endpoints
   db.py              SQLite persistence, one row per session
   test_vitals.py     unit tests against synthetic sine waves (validates the math)
   test_api.py        end-to-end test hitting the real API with a synthetic clip
 ```
+
+**API surface:**
+- `POST /api/sessions/upload` — `video` + `username`, optional `dev_mode`
+  (`true`/`false`) to also return the tracking/signal debug payload above.
+- `GET /api/sessions?username=X` — session history.
+- `DELETE /api/sessions/{id}?username=X` — remove a session (scoped to the
+  matching username, same no-real-auth trust model as everything else).
+
+**History view** also shows summary stats (session count, average HR/BR, HR
+range), a confidence-over-time chart alongside the bpm trend chart, a
+per-session table, and a CSV export of the full history.
 
 Everything runs from one origin (`http://localhost:8000`) because `getUserMedia`
 requires a "secure context," and browsers treat `localhost` as secure even

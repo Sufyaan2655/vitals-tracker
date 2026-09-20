@@ -69,6 +69,18 @@ def insert_session(username: str, result: dict) -> int:
     return session_id
 
 
+def delete_session(session_id: int, username: str) -> bool:
+    conn = get_connection()
+    cur = conn.execute(
+        "DELETE FROM sessions WHERE id = ? AND username = ?",
+        (session_id, username),
+    )
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+
+
 def get_sessions(username: str) -> list[dict]:
     conn = get_connection()
     rows = conn.execute(
