@@ -30,6 +30,14 @@ from scipy.signal import butter, filtfilt, detrend
 HEART_RATE_BAND_HZ = (0.7, 4.0)   # 42-240 bpm
 BREATHING_BAND_HZ = (0.1, 0.6)    # 6-36 breaths/min
 
+# Narrower than the detection bands above on purpose: those exist so the FFT
+# can find a peak at all, but a peak landing near their edges (e.g. 220 bpm)
+# is almost never a real resting reading - it's confidently measuring noise.
+# These flag "atypical for someone sitting still," not "wrong"; confidence
+# alone can't catch this because a clean noise peak still scores high.
+HEART_RATE_PLAUSIBLE_BPM = (45.0, 140.0)
+BREATHING_RATE_PLAUSIBLE_BPM = (8.0, 28.0)
+
 _FACE_CASCADE_PATH = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 _face_cascade = None
 
@@ -76,6 +84,15 @@ def dominant_frequency_bpm(signal: np.ndarray, fs: float) -> float:
     magnitude[0] = 0.0  # ignore DC component
     peak_idx = int(np.argmax(magnitude))
     return float(freqs[peak_idx] * 60.0)
+
+
+def is_plausible_bpm(value: float, plausible_range: tuple[float, float]) -> bool:
+    """Whether `value` falls inside a resting-plausible sub-range - a check
+    independent of signal_quality/confidence, since confidence measures how
+    concentrated the spectral energy is, not whether the resulting number
+    makes physiological sense for someone sitting still."""
+    low, high = plausible_range
+    return low <= value <= high
 
 
 def fft_spectrum(signal: np.ndarray, fs: float) -> tuple[np.ndarray, np.ndarray]:
@@ -212,8 +229,10 @@ def estimate_vitals_from_signals(
     result = {
         "heart_rate_bpm": round(heart_rate, 1),
         "heart_rate_confidence": round(heart_confidence, 3),
+        "heart_rate_plausible": is_plausible_bpm(heart_rate, HEART_RATE_PLAUSIBLE_BPM),
         "breathing_rate_bpm": round(breathing_rate, 1),
         "breathing_rate_confidence": round(breathing_confidence, 3),
+        "breathing_rate_plausible": is_plausible_bpm(breathing_rate, BREATHING_RATE_PLAUSIBLE_BPM),
     }
 
     if include_debug:

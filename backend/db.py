@@ -10,6 +10,12 @@ import sqlite3
 import time
 from pathlib import Path
 
+from vitals import (
+    BREATHING_RATE_PLAUSIBLE_BPM,
+    HEART_RATE_PLAUSIBLE_BPM,
+    is_plausible_bpm,
+)
+
 DB_PATH = Path(__file__).parent / "vitals.db"
 
 
@@ -88,4 +94,12 @@ def get_sessions(username: str) -> list[dict]:
         (username,),
     ).fetchall()
     conn.close()
-    return [dict(row) for row in rows]
+    sessions = [dict(row) for row in rows]
+    # Plausibility isn't a stored column - it's derived from bpm at read time
+    # so historical sessions (recorded before this check existed, or scored
+    # against a threshold that later changes) always reflect the current
+    # definition instead of a stale flag frozen at insert time.
+    for session in sessions:
+        session["heart_rate_plausible"] = is_plausible_bpm(session["heart_rate_bpm"], HEART_RATE_PLAUSIBLE_BPM)
+        session["breathing_rate_plausible"] = is_plausible_bpm(session["breathing_rate_bpm"], BREATHING_RATE_PLAUSIBLE_BPM)
+    return sessions

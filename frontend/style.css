@@ -280,6 +280,36 @@ header h1 {
 .stat-confidence.conf-medium { color: var(--warning); }
 .stat-confidence.conf-low { color: var(--danger); }
 
+.stat-plausibility {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--warning);
+  line-height: 1.4;
+}
+
+.stat-plausibility::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+}
+
+.plausibility-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--warning);
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
 /* Dev-mode toggle switch */
 .toggle {
   display: flex;

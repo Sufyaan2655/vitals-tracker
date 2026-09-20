@@ -27,8 +27,11 @@ from vitals import (
     estimate_vitals_from_signals,
     fft_spectrum,
     forehead_roi_bounds,
+    is_plausible_bpm,
     signal_quality,
     HEART_RATE_BAND_HZ,
+    HEART_RATE_PLAUSIBLE_BPM,
+    BREATHING_RATE_PLAUSIBLE_BPM,
 )
 
 
@@ -182,6 +185,35 @@ def test_estimate_vitals_from_signals_debug_arrays_match_input_length():
     # include_debug=False (the default) must not pay for or expose any of this.
     plain = estimate_vitals_from_signals(green_signal, chest_flow_signal, fs)
     assert "debug" not in plain
+
+
+def test_is_plausible_bpm_accepts_inside_and_rejects_outside_range():
+    assert is_plausible_bpm(70.0, HEART_RATE_PLAUSIBLE_BPM) is True
+    assert is_plausible_bpm(45.0, HEART_RATE_PLAUSIBLE_BPM) is True  # inclusive lower bound
+    assert is_plausible_bpm(140.0, HEART_RATE_PLAUSIBLE_BPM) is True  # inclusive upper bound
+    assert is_plausible_bpm(199.0, HEART_RATE_PLAUSIBLE_BPM) is False
+    assert is_plausible_bpm(30.0, HEART_RATE_PLAUSIBLE_BPM) is False
+
+
+def test_estimate_vitals_from_signals_flags_implausible_heart_rate():
+    """A clean, confident sine wave at a physiologically implausible frequency
+    (e.g. picked up noise near the edge of the detection band) should still
+    be flagged as implausible even though signal_quality reports it as clean -
+    that's the whole point of a check independent of confidence."""
+    fs = 30.0
+    n = int(fs * 15)
+    t = np.arange(n) / fs
+
+    implausible_hz = 210 / 60.0  # inside HEART_RATE_BAND_HZ (up to 240bpm), outside plausible range
+    green_signal = 128 + 15 * np.sin(2 * np.pi * implausible_hz * t)
+    chest_flow_signal = 0.5 * np.sin(2 * np.pi * (16 / 60.0) * t)
+
+    result = estimate_vitals_from_signals(green_signal, chest_flow_signal, fs)
+
+    assert result["heart_rate_bpm"] > HEART_RATE_PLAUSIBLE_BPM[1]
+    assert result["heart_rate_plausible"] is False
+    assert result["heart_rate_confidence"] > 0.2  # confident AND implausible - the exact case this catches
+    assert result["breathing_rate_plausible"] is True
 
 
 if __name__ == "__main__":

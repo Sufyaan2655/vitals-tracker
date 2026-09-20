@@ -10,8 +10,10 @@ const statusEl = document.getElementById("status");
 const resultsEl = document.getElementById("results");
 const hrValue = document.getElementById("hrValue");
 const hrConfidence = document.getElementById("hrConfidence");
+const hrPlausibility = document.getElementById("hrPlausibility");
 const brValue = document.getElementById("brValue");
 const brConfidence = document.getElementById("brConfidence");
+const brPlausibility = document.getElementById("brPlausibility");
 const noHistoryEl = document.getElementById("noHistory");
 const historyTableWrap = document.getElementById("historyTableWrap");
 const historyTableBody = document.getElementById("historyTableBody");
@@ -28,9 +30,17 @@ const liveTrackingStatus = document.getElementById("liveTrackingStatus");
 
 const RECORD_SECONDS = 15;
 // Must match backend/vitals.py's HEART_RATE_BAND_HZ / BREATHING_BAND_HZ - the
-// physiologically plausible ranges the FFT peak is picked from.
+// (deliberately wide) range the FFT peak is picked from, so it can find a
+// signal at all.
 const HEART_RATE_BAND_BPM = [0.7 * 60, 4.0 * 60];
 const BREATHING_BAND_BPM = [0.1 * 60, 0.6 * 60];
+// Must match backend/vitals.py's HEART_RATE_PLAUSIBLE_BPM /
+// BREATHING_RATE_PLAUSIBLE_BPM - the narrower resting-plausible sub-range
+// used only to decide the direction (too low/too high) of the plausibility
+// badge copy; the backend's `_plausible` boolean is what actually gates
+// whether the badge shows at all.
+const HEART_RATE_PLAUSIBLE_BPM = [45, 140];
+const BREATHING_RATE_PLAUSIBLE_BPM = [8, 28];
 
 // Read the palette from CSS custom properties rather than hardcoding hex
 // values here too - style.css's :root is the single source of truth, so
@@ -227,6 +237,38 @@ function showResult(data) {
   brValue.textContent = Math.round(data.breathing_rate_bpm);
   brConfidence.textContent = `confidence ${(data.breathing_rate_confidence * 100).toFixed(0)}%`;
   brConfidence.className = `stat-confidence ${confidenceClass(data.breathing_rate_confidence)}`;
+
+  setPlausibilityBadge(
+    hrPlausibility,
+    data.heart_rate_plausible,
+    data.heart_rate_bpm,
+    HEART_RATE_PLAUSIBLE_BPM,
+    "Lower than a typical resting reading.",
+    "Higher than a typical resting reading - movement or lighting can cause this."
+  );
+  setPlausibilityBadge(
+    brPlausibility,
+    data.breathing_rate_plausible,
+    data.breathing_rate_bpm,
+    BREATHING_RATE_PLAUSIBLE_BPM,
+    "Slower than typical resting breathing.",
+    "Faster than typical resting breathing."
+  );
+}
+
+// A high confidence score means the algorithm found a clean, concentrated
+// peak - it says nothing about whether that peak is a physiologically
+// plausible number for someone sitting still. This badge is deliberately a
+// second, independent check so a confidently-wrong reading (e.g. noise that
+// happens to land cleanly in-band) doesn't ship silently.
+function setPlausibilityBadge(el, isPlausible, bpm, range, lowMessage, highMessage) {
+  if (isPlausible) {
+    el.classList.add("hidden");
+    el.textContent = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  el.textContent = bpm < range[0] ? lowMessage : highMessage;
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +720,11 @@ function renderStats(sessions) {
     .join("");
 }
 
+function plausibilityDot(isPlausible, title) {
+  if (isPlausible !== false) return ""; // undefined/true both render clean
+  return `<span class="plausibility-dot" title="${title}"></span>`;
+}
+
 function formatSessionTime(createdAt) {
   return new Date(createdAt * 1000).toLocaleString(undefined, {
     month: "short",
@@ -702,8 +749,8 @@ function renderHistoryTable(sessions) {
       (s) => `
       <tr>
         <td>${formatSessionTime(s.created_at)}</td>
-        <td>${Math.round(s.heart_rate_bpm)}</td>
-        <td>${Math.round(s.breathing_rate_bpm)}</td>
+        <td>${Math.round(s.heart_rate_bpm)}${plausibilityDot(s.heart_rate_plausible, "Outside the typical resting heart-rate range")}</td>
+        <td>${Math.round(s.breathing_rate_bpm)}${plausibilityDot(s.breathing_rate_plausible, "Outside the typical resting breathing-rate range")}</td>
         <td>${(s.heart_rate_confidence * 100).toFixed(0)}% / ${(s.breathing_rate_confidence * 100).toFixed(0)}%</td>
         <td><button class="row-delete" data-id="${s.id}" title="Delete this session">&times;</button></td>
       </tr>`
