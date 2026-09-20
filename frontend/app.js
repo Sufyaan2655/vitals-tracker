@@ -1,7 +1,7 @@
 const API_BASE = ""; // same-origin: FastAPI serves this file itself
 
-const authScreen = document.getElementById("authScreen");
-const appScreen = document.getElementById("appScreen");
+const authToggleBtn = document.getElementById("authToggleBtn");
+const authPanel = document.getElementById("authPanel");
 const accountBar = document.getElementById("accountBar");
 const accountName = document.getElementById("accountName");
 const signOutBtn = document.getElementById("signOutBtn");
@@ -11,6 +11,15 @@ const authUsername = document.getElementById("authUsername");
 const authPassword = document.getElementById("authPassword");
 const authSubmit = document.getElementById("authSubmit");
 const authStatus = document.getElementById("authStatus");
+
+const saveHint = document.getElementById("saveHint");
+const saveHintSignInBtn = document.getElementById("saveHintSignInBtn");
+const historySignedOut = document.getElementById("historySignedOut");
+const historySignedIn = document.getElementById("historySignedIn");
+const historySignInBtn = document.getElementById("historySignInBtn");
+const monitorSignedOut = document.getElementById("monitorSignedOut");
+const monitorControls = document.getElementById("monitorControls");
+const monitorSignInBtn = document.getElementById("monitorSignInBtn");
 
 const preview = document.getElementById("preview");
 const startCameraBtn = document.getElementById("startCamera");
@@ -116,12 +125,14 @@ function setStatus(message, isError = false) {
 }
 
 // ---------------------------------------------------------------------------
-// Auth: sign in / create account / sign out. Session state lives entirely in
-// an HttpOnly cookie the server sets - fetch() sends it automatically on
-// same-origin requests, nothing to manage here beyond checking who (if
-// anyone) is signed in and reacting to a 401 by showing the auth screen.
+// Auth: sign in / create account / sign out - entirely optional. Recording a
+// clip and seeing the result works with nobody signed in; signing in only
+// adds saved history and background monitoring. Session state lives in an
+// HttpOnly cookie the server sets - fetch() sends it automatically on
+// same-origin requests.
 // ---------------------------------------------------------------------------
 
+let isSignedIn = false;
 let authMode = "login";
 
 function setAuthMode(mode) {
@@ -135,6 +146,31 @@ function setAuthMode(mode) {
 
 authTabs.forEach((tab) => {
   tab.addEventListener("click", () => setAuthMode(tab.dataset.mode));
+});
+
+function openAuthPanel() {
+  authPanel.classList.remove("hidden");
+  authUsername.focus();
+}
+
+function closeAuthPanel() {
+  authPanel.classList.add("hidden");
+}
+
+authToggleBtn.addEventListener("click", () => {
+  authPanel.classList.contains("hidden") ? openAuthPanel() : closeAuthPanel();
+});
+saveHintSignInBtn.addEventListener("click", openAuthPanel);
+historySignInBtn.addEventListener("click", openAuthPanel);
+monitorSignInBtn.addEventListener("click", openAuthPanel);
+
+document.addEventListener("click", (e) => {
+  if (!authPanel.classList.contains("hidden") && !e.target.closest(".auth-widget")) {
+    closeAuthPanel();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !authPanel.classList.contains("hidden")) closeAuthPanel();
 });
 
 authForm.addEventListener("submit", async (e) => {
@@ -155,7 +191,8 @@ authForm.addEventListener("submit", async (e) => {
     const res = await fetch(`${API_BASE}${endpoint}`, { method: "POST", body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || "Something went wrong");
-    enterApp(data.username);
+    closeAuthPanel();
+    applySignedInState(data.username);
   } catch (err) {
     authStatus.textContent = err.message;
     authStatus.classList.add("error");
@@ -168,52 +205,58 @@ signOutBtn.addEventListener("click", async () => {
   try {
     await fetch(`${API_BASE}/api/auth/logout`, { method: "POST" });
   } catch (e) {}
-  stopCamera();
   stopBackgroundMonitor();
-  showAuthScreen();
+  applySignedOutState();
 });
 
-function showAuthScreen() {
-  authScreen.classList.remove("hidden");
-  appScreen.classList.add("hidden");
-  accountBar.classList.add("hidden");
-  authPassword.value = "";
-  authStatus.textContent = "";
-  authStatus.classList.remove("error");
-}
-
-function enterApp(username) {
-  authScreen.classList.add("hidden");
-  appScreen.classList.remove("hidden");
+function applySignedInState(username) {
+  isSignedIn = true;
+  authToggleBtn.classList.add("hidden");
   accountBar.classList.remove("hidden");
   accountName.textContent = username;
+  historySignedOut.classList.add("hidden");
+  historySignedIn.classList.remove("hidden");
+  monitorSignedOut.classList.add("hidden");
+  monitorControls.classList.remove("hidden");
+  saveHint.classList.add("hidden");
+  authUsername.value = "";
+  authPassword.value = "";
   refreshHistory();
   restoreBackgroundMonitorPreference();
+}
+
+function applySignedOutState() {
+  isSignedIn = false;
+  authToggleBtn.classList.remove("hidden");
+  accountBar.classList.add("hidden");
+  historySignedOut.classList.remove("hidden");
+  historySignedIn.classList.add("hidden");
+  monitorSignedOut.classList.remove("hidden");
+  monitorControls.classList.add("hidden");
 }
 
 async function checkAuth() {
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`);
     if (!res.ok) {
-      showAuthScreen();
+      applySignedOutState();
       return;
     }
     const data = await res.json();
-    enterApp(data.username);
+    applySignedInState(data.username);
   } catch (err) {
-    showAuthScreen();
+    applySignedOutState();
   }
 }
 
-// A 401 from any authenticated call means the session cookie expired or was
-// cleared elsewhere - fall back to the sign-in screen instead of leaving the
-// app stuck showing stale data it can no longer fetch.
+// A 401 from a call that actually requires an account (history, delete)
+// means the session cookie expired or was cleared elsewhere - fall back to
+// the signed-out state for those sections. Recording itself never 401s;
+// uploading works signed-out on purpose.
 async function authedFetch(url, options) {
   const res = await fetch(url, options);
   if (res.status === 401) {
-    stopCamera();
-    stopBackgroundMonitor();
-    showAuthScreen();
+    applySignedOutState();
   }
   return res;
 }
@@ -390,6 +433,8 @@ function showResult(data) {
     "Slower than typical resting breathing.",
     "Faster than typical resting breathing."
   );
+
+  saveHint.classList.toggle("hidden", data.saved !== false);
 }
 
 // A high confidence score means the algorithm found a clean, concentrated
@@ -716,6 +761,7 @@ function renderDevCharts(data) {
 // ---------------------------------------------------------------------------
 
 async function refreshHistory() {
+  if (!isSignedIn) return; // signed-out state already shows the sign-in prompt instead
   try {
     const res = await authedFetch(`${API_BASE}/api/sessions`);
     if (!res.ok) return;
@@ -990,6 +1036,7 @@ monitorInterval.addEventListener("change", () => {
 });
 
 async function startBackgroundMonitor() {
+  if (!isSignedIn) return false; // the control is hidden signed-out; this guards programmatic calls too
   if (!("Notification" in window)) {
     monitorStatus.textContent = "This browser doesn't support notifications - background monitoring needs them to be useful.";
     monitorStatus.classList.add("error");

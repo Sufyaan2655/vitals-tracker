@@ -285,18 +285,47 @@ def _smooth_bboxes(bboxes: list):
     return result
 
 
+PLAUSIBLE_CAMERA_FPS = (5.0, 120.0)
+
+
+def _resolve_fps(reported_fps: float, frame_count: int, duration_ms: float) -> float:
+    """Pick a usable fps for a decoded clip.
+
+    Some WebM streams (e.g. from the browser's MediaRecorder, which is what
+    every real recording in this app is) don't embed a reliable container
+    frame rate, and OpenCV/ffmpeg can report nonsense for them - observed in
+    practice: 1000.0 fps for a real ~30fps, ~15s clip, which silently turns
+    "447 frames" into "0.447 seconds" and trips the too-short-clip check on
+    a perfectly good recording. Synthetic MP4 test clips (cv2.VideoWriter)
+    don't hit this, which is why it went unnoticed until a real browser
+    recording. Trust the container's reported fps only if it's in a
+    plausible camera range; otherwise derive it from how long the frames
+    OpenCV actually decoded really spanned; otherwise fall back to 30.
+    """
+    low, high = PLAUSIBLE_CAMERA_FPS
+    if reported_fps and low <= reported_fps <= high:
+        return reported_fps
+    if duration_ms and duration_ms > 0 and frame_count > 1:
+        measured_fps = frame_count / (duration_ms / 1000.0)
+        if low <= measured_fps <= high:
+            return measured_fps
+    return 30.0
+
+
 def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         raise VitalsError(f"Could not open video file: {video_path}")
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    reported_fps = cap.get(cv2.CAP_PROP_FPS)
     frames = []
     while True:
         ok, frame = cap.read()
         if not ok:
             break
         frames.append(frame)
+    duration_ms = cap.get(cv2.CAP_PROP_POS_MSEC)
     cap.release()
+    fps = _resolve_fps(reported_fps, len(frames), duration_ms)
     return frames, fps
 
 

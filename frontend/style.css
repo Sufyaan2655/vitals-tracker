@@ -95,6 +95,14 @@ header h1 {
   letter-spacing: -0.01em;
 }
 
+.header-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
 .subtitle {
   margin: 8px 0 0;
   color: var(--text-dim);
@@ -104,14 +112,20 @@ header h1 {
   max-width: 48ch;
 }
 
+.auth-widget {
+  position: relative;
+  flex-shrink: 0;
+  padding-top: 6px;
+}
+
 .account-bar {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 14px;
   font-family: var(--sans);
   font-size: 13px;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .account-bar strong { color: var(--text); font-weight: 600; }
@@ -163,10 +177,27 @@ header h1 {
 }
 
 #devInsights h2::before { background: var(--text-dim); }
-.app > .card:last-of-type h2::before { background: var(--accent-2); }
+#appScreen > .card:last-of-type h2::before { background: var(--accent-2); }
 
-/* Auth */
-.auth-card { max-width: 420px; margin-left: auto; margin-right: auto; }
+/* Auth widget: a compact popover anchored under the header, not a full-page
+   gate - trying the recorder below never requires opening this. */
+.auth-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 10;
+  width: 300px;
+  max-width: calc(100vw - 40px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 20px 40px -20px rgba(46, 32, 22, 0.45);
+}
+
+.auth-panel .field { margin-bottom: 12px; }
+.auth-panel .btn { width: 100%; }
+.auth-panel .hint { margin-top: 10px; }
 
 .auth-tabs {
   display: flex;
@@ -351,6 +382,29 @@ video:focus-visible {
 }
 
 .status.error { color: var(--danger); }
+
+.save-hint {
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.save-hint .link-btn,
+#historySignedOut .link-btn,
+#monitorSignedOut .link-btn {
+  font-size: inherit;
+  font-family: inherit;
+}
+
+#historySignedOut,
+#monitorSignedOut {
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  line-height: 1.6;
+}
 
 .results {
   display: flex;

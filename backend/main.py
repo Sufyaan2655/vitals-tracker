@@ -6,7 +6,10 @@ Endpoints:
   POST /api/auth/login        - sign in
   POST /api/auth/logout       - sign out
   GET  /api/auth/me           - who's signed in (401 if nobody)
-  POST /api/sessions/upload   - upload a short webcam clip, get back HR/BR estimates
+  POST /api/sessions/upload   - upload a short webcam clip, get back HR/BR estimates.
+                                 Works signed-out (result just isn't saved) or
+                                 signed-in (saved to that account's history) -
+                                 trying the tool never requires an account.
   GET  /api/sessions          - the signed-in user's session history (for the trends chart)
   GET  /api/health            - basic liveness check
 
@@ -84,6 +87,18 @@ def get_current_user_id(session: str | None = Cookie(default=None)) -> int:
     return user_id
 
 
+def get_current_user_id_optional(session: str | None = Cookie(default=None)) -> int | None:
+    # Recording a clip and seeing your result works without an account -
+    # signing in is what turns a one-off reading into saved history, not a
+    # requirement to use the tool at all. An invalid/expired cookie is
+    # treated the same as no cookie here (anonymous), not an error - only
+    # endpoints that actually need an account (history, delete) use the
+    # hard-requiring get_current_user_id instead.
+    if session is None:
+        return None
+    return verify_session_token(session)
+
+
 def _set_session_cookie(response: Response, request: Request, user_id: int) -> None:
     # `secure` is conditional, not hardcoded True: this app also runs over
     # plain http://localhost for local dev (browsers treat localhost as a
@@ -143,7 +158,7 @@ def me(user_id: int = Depends(get_current_user_id)):
 async def upload_session(
     video: UploadFile,
     dev_mode: bool = Form(False),
-    user_id: int = Depends(get_current_user_id),
+    user_id: int | None = Depends(get_current_user_id_optional),
 ):
     suffix = Path(video.filename or "clip.webm").suffix or ".webm"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -159,8 +174,14 @@ async def upload_session(
     finally:
         Path(tmp_path).unlink(missing_ok=True)
 
-    session_id = db.insert_session(user_id, result)
-    result["id"] = session_id
+    # Signed in -> save to that account's history. Anonymous -> just hand
+    # back the reading for this one clip; nothing is written to the DB, so
+    # there's nothing to clean up or associate with an account later.
+    if user_id is not None:
+        result["id"] = db.insert_session(user_id, result)
+    else:
+        result["id"] = None
+    result["saved"] = user_id is not None
     return result
 
 

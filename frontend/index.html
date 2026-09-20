@@ -15,41 +15,46 @@
 <body>
   <div class="app">
     <header>
-      <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 64 24" aria-hidden="true">
-          <polyline points="0,12 14,12 19,3 25,21 30,8 34,12 64,12" pathLength="100" />
-        </svg>
-        <h1>Vitals Tracker</h1>
+      <div class="header-top">
+        <div class="brand">
+          <svg class="brand-mark" viewBox="0 0 64 24" aria-hidden="true">
+            <polyline points="0,12 14,12 19,3 25,21 30,8 34,12 64,12" pathLength="100" />
+          </svg>
+          <h1>Vitals Tracker</h1>
+        </div>
+
+        <div class="auth-widget">
+          <button id="authToggleBtn" class="link-btn">Sign in to save history</button>
+          <div id="accountBar" class="account-bar hidden">
+            <span>Signed in as <strong id="accountName"></strong></span>
+            <button id="signOutBtn" class="link-btn">Sign out</button>
+          </div>
+
+          <div id="authPanel" class="auth-panel hidden">
+            <div class="auth-tabs">
+              <button type="button" class="auth-tab active" data-mode="login">Sign in</button>
+              <button type="button" class="auth-tab" data-mode="signup">Create account</button>
+            </div>
+            <form id="authForm" autocomplete="on">
+              <label class="field">
+                <span>Username</span>
+                <input id="authUsername" name="username" type="text" placeholder="e.g. sufyaan" autocomplete="username" required />
+              </label>
+              <label class="field">
+                <span>Password</span>
+                <input id="authPassword" name="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required minlength="8" />
+              </label>
+              <button type="submit" class="btn btn-primary" id="authSubmit">Sign in</button>
+            </form>
+            <p id="authStatus" class="status"></p>
+            <p class="hint">Optional - the recorder below works without an account. Sign in only if you want your results saved and trended over time.</p>
+          </div>
+        </div>
       </div>
       <p class="subtitle">Heart rate &amp; breathing rate, read straight out of a webcam clip. No wearable required.</p>
-      <div id="accountBar" class="account-bar hidden">
-        <span>Signed in as <strong id="accountName"></strong></span>
-        <button id="signOutBtn" class="link-btn">Sign out</button>
-      </div>
     </header>
 
-    <section id="authScreen" class="card auth-card">
-      <div class="auth-tabs">
-        <button type="button" class="auth-tab active" data-mode="login">Sign in</button>
-        <button type="button" class="auth-tab" data-mode="signup">Create account</button>
-      </div>
-
-      <form id="authForm" autocomplete="on">
-        <label class="field">
-          <span>Username</span>
-          <input id="authUsername" name="username" type="text" placeholder="e.g. sufyaan" autocomplete="username" required />
-        </label>
-        <label class="field">
-          <span>Password</span>
-          <input id="authPassword" name="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required minlength="8" />
-        </label>
-        <button type="submit" class="btn btn-primary" id="authSubmit">Sign in</button>
-      </form>
-      <p id="authStatus" class="status"></p>
-      <p class="hint">Your history is private to your account, stored on this server only.</p>
-    </section>
-
-    <div id="appScreen" class="hidden">
+    <div id="appScreen">
       <section class="card">
         <div class="camera-row">
           <div class="preview-wrap">
@@ -66,7 +71,7 @@
               <span class="toggle-label">Dev mode - live tracking overlay, raw signals &amp; FFT</span>
             </label>
             <div id="countdown" class="countdown"></div>
-            <p class="hint">Sit still, face the camera, good even lighting works best.</p>
+            <p class="hint">Sit still, face the camera, good even lighting works best. No account needed to try it.</p>
           </div>
         </div>
 
@@ -86,6 +91,7 @@
             <div class="stat-plausibility hidden" id="brPlausibility"></div>
           </div>
         </div>
+        <p id="saveHint" class="hint save-hint hidden">This result wasn't saved - <button type="button" id="saveHintSignInBtn" class="link-btn">sign in</button> to keep a history of your readings.</p>
       </section>
 
       <section class="card monitor-card">
@@ -96,7 +102,11 @@
           browser notification if a reading comes back unusually low. This needs the browser to
           keep running; it can't check anything while the tab is closed or the computer is asleep.
         </p>
-        <div class="monitor-controls">
+        <div id="monitorSignedOut" class="hint">
+          <button type="button" id="monitorSignInBtn" class="link-btn">Sign in</button> to enable background
+          monitoring - it checks in repeatedly over time, so it needs an account to mean anything.
+        </div>
+        <div id="monitorControls" class="monitor-controls hidden">
           <label class="toggle">
             <input type="checkbox" id="monitorToggle" />
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
@@ -152,27 +162,34 @@
 
       <section class="card">
         <h2>History</h2>
-        <div id="historyStats" class="stats-row"></div>
-        <canvas id="trendsChart" height="120"></canvas>
-        <canvas id="confidenceChart" height="100"></canvas>
-        <p id="noHistory" class="hint">No sessions yet - record a clip above to start your history.</p>
+        <div id="historySignedOut" class="hint">
+          <button type="button" id="historySignInBtn" class="link-btn">Sign in</button> to save your results
+          and build a trend history over time. Recording still works without an account - results just
+          won't be kept after you leave the page.
+        </div>
+        <div id="historySignedIn" class="hidden">
+          <div id="historyStats" class="stats-row"></div>
+          <canvas id="trendsChart" height="120"></canvas>
+          <canvas id="confidenceChart" height="100"></canvas>
+          <p id="noHistory" class="hint">No sessions yet - record a clip above to start your history.</p>
 
-        <div id="historyTableWrap" class="hidden">
-          <div class="history-actions">
-            <button id="exportCsv" class="btn">Export CSV</button>
+          <div id="historyTableWrap" class="hidden">
+            <div class="history-actions">
+              <button id="exportCsv" class="btn">Export CSV</button>
+            </div>
+            <table id="historyTable" class="history-table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>HR</th>
+                  <th>BR</th>
+                  <th>Confidence (HR / BR)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody"></tbody>
+            </table>
           </div>
-          <table id="historyTable" class="history-table">
-            <thead>
-              <tr>
-                <th>When</th>
-                <th>HR</th>
-                <th>BR</th>
-                <th>Confidence (HR / BR)</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="historyTableBody"></tbody>
-          </table>
         </div>
       </section>
     </div>

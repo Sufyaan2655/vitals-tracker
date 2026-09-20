@@ -29,6 +29,7 @@ from vitals import (
     forehead_roi_bounds,
     is_plausible_bpm,
     signal_quality,
+    _resolve_fps,
     HEART_RATE_BAND_HZ,
     HEART_RATE_PLAUSIBLE_BPM,
     BREATHING_RATE_PLAUSIBLE_BPM,
@@ -214,6 +215,33 @@ def test_estimate_vitals_from_signals_flags_implausible_heart_rate():
     assert result["heart_rate_plausible"] is False
     assert result["heart_rate_confidence"] > 0.2  # confident AND implausible - the exact case this catches
     assert result["breathing_rate_plausible"] is True
+
+
+def test_resolve_fps_trusts_a_plausible_reported_value():
+    # 447 frames over what the container claims is a real ~30fps clip.
+    assert _resolve_fps(reported_fps=29.97, frame_count=447, duration_ms=14915) == 29.97
+
+
+def test_resolve_fps_falls_back_to_measured_when_reported_is_implausible():
+    """Reproduces the real bug: a WebM recording where OpenCV reports a
+    nonsense container fps (1000, turning a real ~15s clip into a reported
+    0.447s and wrongly tripping the too-short-clip check). 447 frames
+    actually decoded over ~14.9 real seconds is obviously a ~30fps clip."""
+    fps = _resolve_fps(reported_fps=1000.0, frame_count=447, duration_ms=14915)
+    assert 29.0 <= fps <= 31.0
+
+
+def test_resolve_fps_falls_back_to_default_when_nothing_is_usable():
+    assert _resolve_fps(reported_fps=0.0, frame_count=0, duration_ms=0.0) == 30.0
+    assert _resolve_fps(reported_fps=None, frame_count=1, duration_ms=0.0) == 30.0
+
+
+def test_resolve_fps_rejects_an_implausible_measured_fallback_too():
+    # duration_ms suspiciously tiny relative to frame_count would itself
+    # measure an implausible fps (e.g. a corrupt/truncated read) - don't
+    # trust that either, fall back to the default instead.
+    fps = _resolve_fps(reported_fps=1000.0, frame_count=447, duration_ms=10)
+    assert fps == 30.0
 
 
 if __name__ == "__main__":

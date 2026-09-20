@@ -67,33 +67,39 @@ None of this is persisted — the live overlay is stateless per-frame, and the
 replay/signal data is returned only on the upload that requested it
 (`dev_mode=true`), not stored with the session in SQLite.
 
-## Accounts
+## Accounts (optional)
 
-Real sign-up/sign-in, not a trusted typed name: passwords are hashed with
-PBKDF2-HMAC-SHA256 (200k iterations, random salt per user — stdlib only, no
-external auth dependency), and sessions are a signed, HttpOnly cookie
-(30-day expiry) verified server-side on every request. History is scoped to
-the authenticated account, so it's actually private per person instead of
-namespaced by whatever string someone typed in.
+Signing in is never required to try the tool — enable the camera and record
+a clip works for anyone, with the result shown once and not saved. An
+account only adds saved history and background monitoring; a "Sign in to
+save history" link sits in the header rather than gating the app behind a
+login screen. When you do sign in: real sign-up/sign-in, not a trusted
+typed name — passwords are hashed with PBKDF2-HMAC-SHA256 (200k iterations,
+random salt per user — stdlib only, no external auth dependency), and
+sessions are a signed, HttpOnly cookie (30-day expiry) verified server-side
+on every request. History is scoped to the authenticated account, so it's
+actually private per person instead of namespaced by whatever string
+someone typed in.
 
 ## Background monitoring
 
-An opt-in mode that records a short check-in clip on an interval (5–30
-minutes, configurable) while the tab stays open, and sends a browser
-notification if a reading comes back unusually low (below the same
-resting-plausible thresholds the plausibility badge uses). Worth being
-precise about what this actually is: a recurring `getUserMedia` capture
-from an open browser tab, **not** an OS-level background service. It needs
-the browser process to keep running (the tab itself can be inactive or
-behind other windows) and cannot check anything with the tab closed or the
-computer asleep — stated plainly in the UI rather than oversold.
+An opt-in mode (requires signing in, since it only makes sense tied to an
+account) that records a short check-in clip on an interval (5–30 minutes,
+configurable) while the tab stays open, and sends a browser notification if
+a reading comes back unusually low (below the same resting-plausible
+thresholds the plausibility badge uses). Worth being precise about what
+this actually is: a recurring `getUserMedia` capture from an open browser
+tab, **not** an OS-level background service. It needs the browser process
+to keep running (the tab itself can be inactive or behind other windows)
+and cannot check anything with the tab closed or the computer asleep —
+stated plainly in the UI rather than oversold.
 
 ## Architecture
 
 ```
 frontend/            served as static files by the backend itself
-  index.html         auth screens + camera capture UI + dev-mode overlay/charts + history
-  app.js              auth + getUserMedia -> MediaRecorder -> upload -> render + background monitoring
+  index.html         optional auth widget + camera capture UI + dev-mode overlay/charts + history
+  app.js              optional auth + getUserMedia -> MediaRecorder -> upload -> render + background monitoring
   style.css
 
 backend/
@@ -111,13 +117,15 @@ backend/
   / `GET /api/auth/me` — account creation, sign-in, sign-out, and session
   check. Sets/clears the session cookie.
 - `POST /api/sessions/upload` — `video`, optional `dev_mode` (`true`/`false`)
-  to also return the tracking/signal debug payload above. Requires a signed-
-  in session.
+  to also return the tracking/signal debug payload above. Works signed-out
+  (the response comes back with `"saved": false, "id": null` and nothing is
+  written to the DB) or signed-in (saved to that account's history).
 - `POST /api/detect-face` — a single JPEG frame in, `{detected, regions}`
   out; powers the live dev-mode overlay, stateless, nothing persisted.
-- `GET /api/sessions` — the signed-in account's session history.
+- `GET /api/sessions` — the signed-in account's session history. Requires a
+  session.
 - `DELETE /api/sessions/{id}` — remove a session (scoped to the
-  authenticated account).
+  authenticated account). Requires a session.
 
 **History view** also shows summary stats (session count, average HR/BR, HR
 range), a confidence-over-time chart alongside the bpm trend chart, a
@@ -136,10 +144,11 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Then open `http://localhost:8000` in a browser, create an account (or sign
-in), allow camera access, and record a 15-second clip while sitting still
-and facing the camera in good, even lighting. Record a few clips over
-different days/times to see your trend line build up.
+Then open `http://localhost:8000` in a browser, allow camera access, and
+record a 15-second clip while sitting still and facing the camera in good,
+even lighting — no account needed. Sign in (optional, top of the page) if
+you want that clip and future ones saved so you can see a trend line build
+up over time instead of just the one-off reading.
 
 ## Running the tests
 

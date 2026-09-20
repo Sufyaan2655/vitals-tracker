@@ -145,12 +145,38 @@ def test_upload_endpoint_processes_synthetic_clip_and_stores_session(client, tmp
     assert "heart_rate_bpm" in body
     assert "breathing_rate_bpm" in body
     assert body["num_frames"] > 0
+    assert body["saved"] is True
+    assert body["id"] is not None
 
     history = client.get("/api/sessions")
     assert history.status_code == 200
     sessions = history.json()
     assert len(sessions) == 1
     assert sessions[0]["heart_rate_bpm"] == body["heart_rate_bpm"]
+
+
+def test_upload_endpoint_works_when_signed_out_but_does_not_save(client, tmp_path):
+    """Trying the tool must never require an account - only saved history
+    does."""
+    clip_path = str(tmp_path / "clip.mp4")
+    _write_synthetic_clip(clip_path, bpm=75)
+
+    with open(clip_path, "rb") as f:
+        response = client.post(
+            "/api/sessions/upload",
+            files={"video": ("clip.mp4", f, "video/mp4")},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "heart_rate_bpm" in body
+    assert body["saved"] is False
+    assert body["id"] is None
+
+    # And signing in afterward sees no history from that anonymous upload.
+    signup(client, "late_signup_user")
+    history = client.get("/api/sessions")
+    assert history.json() == []
 
 
 def test_detect_face_endpoint_finds_face_in_synthetic_frame(client):
