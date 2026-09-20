@@ -82,6 +82,44 @@ def test_upload_endpoint_processes_synthetic_clip_and_stores_session(client, tmp
     assert sessions[0]["heart_rate_bpm"] == body["heart_rate_bpm"]
 
 
+def test_detect_face_endpoint_finds_face_in_synthetic_frame(client):
+    frame = _draw_face_like_frame(320, 240, 160, 120, 70, green_value=150)
+    ok, encoded = cv2.imencode(".jpg", frame)
+    assert ok
+
+    response = client.post(
+        "/api/detect-face",
+        files={"frame": ("frame.jpg", encoded.tobytes(), "image/jpeg")},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["detected"] is True
+    regions = body["regions"]
+    for key in ("face_bbox", "forehead_roi_bbox", "chest_roi_bbox"):
+        box = regions[key]
+        assert len(box) == 4
+        assert box[2] > 0 and box[3] > 0
+    assert regions["frame_width"] == 320
+    assert regions["frame_height"] == 240
+
+
+def test_detect_face_endpoint_reports_no_face_on_blank_frame(client):
+    blank = np.full((240, 320, 3), 100, dtype=np.uint8)
+    ok, encoded = cv2.imencode(".jpg", blank)
+    assert ok
+
+    response = client.post(
+        "/api/detect-face",
+        files={"frame": ("frame.jpg", encoded.tobytes(), "image/jpeg")},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["detected"] is False
+    assert body["regions"] is None
+
+
 def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client, tmp_path):
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=75, duration_s=8)

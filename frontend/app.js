@@ -23,15 +23,35 @@ const replayVideo = document.getElementById("replayVideo");
 const overlayCanvas = document.getElementById("overlayCanvas");
 const faceDropoutWarning = document.getElementById("faceDropoutWarning");
 
+const liveOverlayCanvas = document.getElementById("liveOverlayCanvas");
+const liveTrackingStatus = document.getElementById("liveTrackingStatus");
+
 const RECORD_SECONDS = 15;
 // Must match backend/vitals.py's HEART_RATE_BAND_HZ / BREATHING_BAND_HZ - the
 // physiologically plausible ranges the FFT peak is picked from.
 const HEART_RATE_BAND_BPM = [0.7 * 60, 4.0 * 60];
 const BREATHING_BAND_BPM = [0.1 * 60, 0.6 * 60];
 
+// Read the palette from CSS custom properties rather than hardcoding hex
+// values here too - style.css's :root is the single source of truth, so
+// canvas/Chart.js colors can never drift out of sync with the theme.
+const rootStyle = getComputedStyle(document.documentElement);
+const cssVar = (name) => rootStyle.getPropertyValue(name).trim();
+const COLORS = {
+  text: cssVar("--text"),
+  textDim: cssVar("--text-dim"),
+  accent: cssVar("--accent"),
+  accent2: cssVar("--accent-2"),
+  success: cssVar("--success"),
+  warning: cssVar("--warning"),
+  danger: cssVar("--danger"),
+  border: cssVar("--border"),
+};
+
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
+let cameraOn = false;
 let chart = null;
 let confidenceChart = null;
 
@@ -40,6 +60,10 @@ let debugFps = 30;
 let replayObjectUrl = null;
 let overlayLoopActive = false;
 const devCharts = {};
+
+let liveTrackingTimer = null;
+let liveDetectInFlight = false;
+const liveCaptureCanvas = document.createElement("canvas");
 
 // Remember the last-used name/dev-mode preference across visits (this is a
 // normal local web app running in the user's own browser, not an embedded
@@ -63,6 +87,11 @@ devModeToggle.addEventListener("change", () => {
   try {
     localStorage.setItem("vitals_dev_mode", devModeToggle.checked ? "1" : "0");
   } catch (e) {}
+  if (devModeToggle.checked && cameraOn) {
+    startLiveTracking();
+  } else {
+    stopLiveTracking();
+  }
 });
 
 function setStatus(message, isError = false) {
@@ -74,16 +103,26 @@ function currentUsername() {
   return usernameInput.value.trim() || "anonymous";
 }
 
+// ---------------------------------------------------------------------------
+// Camera: enable/disable toggle.
+// ---------------------------------------------------------------------------
+
 startCameraBtn.addEventListener("click", async () => {
+  if (cameraOn) {
+    stopCamera();
+    return;
+  }
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
       video: { width: 640, height: 480, facingMode: "user" },
       audio: false,
     });
     preview.srcObject = mediaStream;
+    cameraOn = true;
     recordBtn.disabled = false;
-    startCameraBtn.disabled = true;
+    startCameraBtn.textContent = "Disable camera";
     setStatus("Camera ready. Sit still, face well-lit, then record a clip.");
+    if (devModeToggle.checked) startLiveTracking();
   } catch (err) {
     setStatus(
       "Couldn't access the camera. Check browser permissions and that no other app is using it.",
@@ -91,6 +130,19 @@ startCameraBtn.addEventListener("click", async () => {
     );
   }
 });
+
+function stopCamera() {
+  if (mediaStream) {
+    mediaStream.getTracks().forEach((t) => t.stop());
+    mediaStream = null;
+  }
+  preview.srcObject = null;
+  cameraOn = false;
+  recordBtn.disabled = true;
+  startCameraBtn.textContent = "Enable camera";
+  setStatus("Camera off.");
+  stopLiveTracking();
+}
 
 recordBtn.addEventListener("click", () => {
   if (!mediaStream) return;
@@ -108,6 +160,7 @@ recordBtn.addEventListener("click", () => {
 
   mediaRecorder.start();
   recordBtn.disabled = true;
+  startCameraBtn.disabled = true; // don't let the stream get killed mid-recording
   resultsEl.classList.add("hidden");
   devInsightsEl.classList.add("hidden");
   overlayLoopActive = false;
@@ -156,6 +209,7 @@ async function handleRecordingComplete() {
     setStatus(`Error: ${err.message}`, true);
   } finally {
     recordBtn.disabled = false;
+    startCameraBtn.disabled = false;
   }
 }
 
@@ -176,9 +230,88 @@ function showResult(data) {
 }
 
 // ---------------------------------------------------------------------------
-// Dev mode: replay the just-recorded clip with the face/ROI boxes the backend
-// actually used drawn on top, plus the raw + filtered signals and their FFT
-// spectra, so it's visible *why* a given bpm/confidence came out the way it did.
+// Live dev-mode tracking: while the camera is on and dev mode is enabled,
+// periodically send a frame from the live preview to the same face/ROI
+// detector the real pipeline uses, and draw the result over the preview -
+// so you can see what's being tracked *while* recording, not just after.
+// ---------------------------------------------------------------------------
+
+function startLiveTracking() {
+  if (liveTrackingTimer) return;
+  liveTrackingStatus.textContent = "starting tracker...";
+  liveTrackingStatus.classList.remove("hidden", "warning");
+  liveTrackingTimer = setInterval(captureAndDetectLive, 450);
+}
+
+function stopLiveTracking() {
+  if (liveTrackingTimer) {
+    clearInterval(liveTrackingTimer);
+    liveTrackingTimer = null;
+  }
+  liveTrackingStatus.classList.add("hidden");
+  const ctx = liveOverlayCanvas.getContext("2d");
+  ctx.clearRect(0, 0, liveOverlayCanvas.width, liveOverlayCanvas.height);
+}
+
+async function captureAndDetectLive() {
+  if (liveDetectInFlight || !mediaStream || preview.readyState < 2) return;
+  const w = preview.videoWidth;
+  const h = preview.videoHeight;
+  if (!w || !h) return;
+
+  liveCaptureCanvas.width = w;
+  liveCaptureCanvas.height = h;
+  liveCaptureCanvas.getContext("2d").drawImage(preview, 0, 0, w, h);
+
+  liveDetectInFlight = true;
+  liveCaptureCanvas.toBlob(
+    async (blob) => {
+      if (!blob) {
+        liveDetectInFlight = false;
+        return;
+      }
+      try {
+        const fd = new FormData();
+        fd.append("frame", blob, "frame.jpg");
+        const res = await fetch(`${API_BASE}/api/detect-face`, { method: "POST", body: fd });
+        const data = await res.json();
+        drawLiveOverlay(data, w, h);
+      } catch (err) {
+        /* transient network hiccup - just skip this tick */
+      } finally {
+        liveDetectInFlight = false;
+      }
+    },
+    "image/jpeg",
+    0.7
+  );
+}
+
+function drawLiveOverlay(data, w, h) {
+  liveOverlayCanvas.width = w;
+  liveOverlayCanvas.height = h;
+  const ctx = liveOverlayCanvas.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+
+  if (!data.detected) {
+    liveTrackingStatus.textContent = "no face detected";
+    liveTrackingStatus.classList.add("warning");
+    return;
+  }
+  liveTrackingStatus.textContent = "tracking forehead + chest regions";
+  liveTrackingStatus.classList.remove("warning");
+
+  const r = data.regions;
+  drawBox(ctx, r.face_bbox, COLORS.text, "face");
+  drawBox(ctx, r.forehead_roi_bbox, COLORS.accent, "forehead (HR)");
+  drawBox(ctx, r.chest_roi_bbox, COLORS.accent2, "chest (BR)");
+}
+
+// ---------------------------------------------------------------------------
+// Dev mode replay: after a clip is uploaded, replay it with the face/ROI
+// boxes the backend actually used drawn on top, plus the raw + filtered
+// signals and their FFT spectra, so it's visible *why* a given bpm/
+// confidence came out the way it did.
 // ---------------------------------------------------------------------------
 
 function setupDevInsights(blob, data) {
@@ -234,7 +367,7 @@ function drawBox(ctx, bbox, color, label, dashed = false) {
   ctx.strokeRect(x, y, w, h);
   ctx.restore();
   ctx.fillStyle = color;
-  ctx.font = "bold 13px sans-serif";
+  ctx.font = "600 12px 'Space Grotesk', sans-serif";
   const labelY = y > 16 ? y - 5 : y + h + 14;
   ctx.fillText(label, x + 2, labelY);
 }
@@ -249,9 +382,9 @@ function drawOverlayFrame() {
   ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
 
   const detected = debugData.face_detected[idx];
-  drawBox(ctx, debugData.face_bboxes[idx], detected ? "#5b8cff" : "#ff6b6b", detected ? "face" : "face (lost)", !detected);
-  drawBox(ctx, debugData.forehead_roi_bboxes[idx], "#33d6a6", "forehead ROI");
-  drawBox(ctx, debugData.chest_roi_bboxes[idx], "#ffb84d", "chest ROI");
+  drawBox(ctx, debugData.face_bboxes[idx], detected ? COLORS.text : COLORS.danger, detected ? "face" : "face (lost)", !detected);
+  drawBox(ctx, debugData.forehead_roi_bboxes[idx], COLORS.accent, "forehead ROI");
+  drawBox(ctx, debugData.chest_roi_bboxes[idx], COLORS.accent2, "chest ROI");
 }
 
 function destroyDevCharts() {
@@ -274,7 +407,7 @@ function verticalLineDataset(xValue, maxY, color, label, dashed) {
   };
 }
 
-function makeSignalChart(canvasId, times, raw, filtered, rawLabel, filteredLabel, rawColor, filteredColor) {
+function makeSignalChart(canvasId, times, raw, filtered, rawLabel, filteredLabel, filteredColor) {
   const ctx = document.getElementById(canvasId).getContext("2d");
   const toPoints = (arr) => arr.map((v, i) => ({ x: times[i], y: v }));
   return new Chart(ctx, {
@@ -284,7 +417,7 @@ function makeSignalChart(canvasId, times, raw, filtered, rawLabel, filteredLabel
         {
           label: rawLabel,
           data: toPoints(raw),
-          borderColor: rawColor,
+          borderColor: COLORS.textDim,
           backgroundColor: "transparent",
           borderWidth: 1,
           pointRadius: 0,
@@ -305,10 +438,10 @@ function makeSignalChart(canvasId, times, raw, filtered, rawLabel, filteredLabel
       responsive: true,
       animation: false,
       scales: {
-        x: { type: "linear", title: { display: true, text: "seconds", color: "#93a0b8" }, ticks: { color: "#93a0b8" }, grid: { color: "#262e42" } },
-        y: { ticks: { color: "#93a0b8" }, grid: { color: "#262e42" }, title: { display: true, text: "raw (thin) vs. filtered (bold)", color: "#93a0b8", font: { size: 10 } } },
+        x: { type: "linear", title: { display: true, text: "seconds", color: COLORS.textDim }, ticks: { color: COLORS.textDim }, grid: { color: COLORS.border } },
+        y: { ticks: { color: COLORS.textDim }, grid: { color: COLORS.border }, title: { display: true, text: "raw (thin) vs. filtered (bold)", color: COLORS.textDim, font: { size: 10 } } },
       },
-      plugins: { legend: { labels: { color: "#e7ebf3", boxWidth: 12, font: { size: 11 } } } },
+      plugins: { legend: { labels: { color: COLORS.text, boxWidth: 12, font: { size: 11 } } } },
     },
   });
 }
@@ -332,22 +465,22 @@ function makeFftChart(canvasId, freqsHz, magnitude, bandBpm, peakBpm, accentColo
           pointRadius: 0,
           tension: 0.15,
         },
-        verticalLineDataset(bandBpm[0], maxMag, "#93a0b8", "plausible range", true),
-        verticalLineDataset(bandBpm[1], maxMag, "#93a0b8", "plausible range", true),
-        verticalLineDataset(peakBpm, maxMag, "#ff6b6b", "detected peak", false),
+        verticalLineDataset(bandBpm[0], maxMag, COLORS.textDim, "plausible range", true),
+        verticalLineDataset(bandBpm[1], maxMag, COLORS.textDim, "plausible range", true),
+        verticalLineDataset(peakBpm, maxMag, COLORS.danger, "detected peak", false),
       ],
     },
     options: {
       responsive: true,
       animation: false,
       scales: {
-        x: { type: "linear", min: 0, max: xMax, title: { display: true, text: "bpm / min", color: "#93a0b8" }, ticks: { color: "#93a0b8" }, grid: { color: "#262e42" } },
-        y: { ticks: { color: "#93a0b8" }, grid: { color: "#262e42" }, title: { display: true, text: "FFT magnitude", color: "#93a0b8", font: { size: 10 } } },
+        x: { type: "linear", min: 0, max: xMax, title: { display: true, text: "bpm / min", color: COLORS.textDim }, ticks: { color: COLORS.textDim }, grid: { color: COLORS.border } },
+        y: { ticks: { color: COLORS.textDim }, grid: { color: COLORS.border }, title: { display: true, text: "FFT magnitude", color: COLORS.textDim, font: { size: 10 } } },
       },
       plugins: {
         legend: {
           labels: {
-            color: "#e7ebf3",
+            color: COLORS.text,
             boxWidth: 12,
             font: { size: 11 },
             filter: (item) => item.text !== "plausible range" || item.datasetIndex === 1,
@@ -369,8 +502,7 @@ function renderDevCharts(data) {
     debug.green_signal_filtered,
     "raw forehead green channel",
     "band-passed (0.7-4.0 Hz)",
-    "#5b8cff",
-    "#33d6a6"
+    COLORS.accent
   );
   devCharts.brSignal = makeSignalChart(
     "brSignalChart",
@@ -379,8 +511,7 @@ function renderDevCharts(data) {
     debug.chest_signal_filtered,
     "raw chest optical-flow",
     "band-passed (0.1-0.6 Hz)",
-    "#5b8cff",
-    "#ffb84d"
+    COLORS.accent2
   );
   devCharts.hrFft = makeFftChart(
     "hrFftChart",
@@ -388,7 +519,7 @@ function renderDevCharts(data) {
     debug.hr_fft_magnitude,
     HEART_RATE_BAND_BPM,
     data.heart_rate_bpm,
-    "#33d6a6",
+    COLORS.accent,
     260
   );
   devCharts.brFft = makeFftChart(
@@ -397,7 +528,7 @@ function renderDevCharts(data) {
     debug.br_fft_magnitude,
     BREATHING_BAND_BPM,
     data.breathing_rate_bpm,
-    "#ffb84d",
+    COLORS.accent2,
     40
   );
 }
@@ -444,7 +575,7 @@ function renderChart(sessions) {
         {
           label: "Heart rate (bpm)",
           data: hr,
-          borderColor: "#5b8cff",
+          borderColor: COLORS.accent,
           backgroundColor: "transparent",
           tension: 0.3,
           yAxisID: "y",
@@ -452,7 +583,7 @@ function renderChart(sessions) {
         {
           label: "Breathing rate (br/min)",
           data: br,
-          borderColor: "#33d6a6",
+          borderColor: COLORS.accent2,
           backgroundColor: "transparent",
           tension: 0.3,
           yAxisID: "y1",
@@ -463,11 +594,12 @@ function renderChart(sessions) {
       responsive: true,
       interaction: { mode: "index", intersect: false },
       scales: {
-        y: { type: "linear", position: "left", title: { display: true, text: "bpm" } },
-        y1: { type: "linear", position: "right", title: { display: true, text: "br/min" }, grid: { drawOnChartArea: false } },
+        y: { type: "linear", position: "left", title: { display: true, text: "bpm", color: COLORS.textDim }, ticks: { color: COLORS.textDim }, grid: { color: COLORS.border } },
+        y1: { type: "linear", position: "right", title: { display: true, text: "br/min", color: COLORS.textDim }, ticks: { color: COLORS.textDim }, grid: { drawOnChartArea: false } },
+        x: { ticks: { color: COLORS.textDim }, grid: { color: COLORS.border } },
       },
       plugins: {
-        legend: { labels: { color: "#e7ebf3" } },
+        legend: { labels: { color: COLORS.text } },
       },
     },
   });
@@ -499,14 +631,14 @@ function renderConfidenceChart(sessions) {
         {
           label: "Heart rate confidence (%)",
           data: hrConf,
-          borderColor: "#33d6a6",
+          borderColor: COLORS.accent,
           backgroundColor: "transparent",
           tension: 0.3,
         },
         {
           label: "Breathing confidence (%)",
           data: brConf,
-          borderColor: "#ffb84d",
+          borderColor: COLORS.accent2,
           backgroundColor: "transparent",
           tension: 0.3,
         },
@@ -516,10 +648,11 @@ function renderConfidenceChart(sessions) {
       responsive: true,
       interaction: { mode: "index", intersect: false },
       scales: {
-        y: { type: "linear", min: 0, max: 100, title: { display: true, text: "confidence %" } },
+        y: { type: "linear", min: 0, max: 100, title: { display: true, text: "confidence %", color: COLORS.textDim }, ticks: { color: COLORS.textDim }, grid: { color: COLORS.border } },
+        x: { ticks: { color: COLORS.textDim }, grid: { color: COLORS.border } },
       },
       plugins: {
-        legend: { labels: { color: "#e7ebf3" } },
+        legend: { labels: { color: COLORS.text } },
       },
     },
   });

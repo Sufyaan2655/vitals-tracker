@@ -39,14 +39,21 @@ hiding.
 ## Dev mode
 
 Confidence and bpm numbers alone don't explain *why* a reading came out the
-way it did. Flip on "Dev mode" before recording a clip and the app also
-returns, and renders:
+way it did. Flip on "Dev mode" and the app shows its work both live and after
+the fact:
 
-- **Tracking overlay** — the just-recorded clip replayed with the actual face
-  bounding box, forehead ROI (the heart-rate source region), and chest/shoulder
-  ROI (the breathing source region) drawn on top, frame-synced. Frames where
-  face detection dropped out are flagged red (the pipeline reuses the last
-  known box rather than skipping the frame — a real source of noise).
+- **Live tracking overlay** — while the camera is on (including while
+  recording), a small overlay on the preview shows the current face box,
+  forehead ROI (heart-rate source), and chest/shoulder ROI (breathing
+  source), refreshed a few times a second. This calls a lightweight
+  `POST /api/detect-face` endpoint that reuses the *exact same* detector and
+  ROI math as the real pipeline (not a separate client-side detector), so
+  what you see live can't drift from what a recorded clip is actually scored
+  on.
+- **Post-recording replay** — the just-recorded clip replayed with the same
+  boxes drawn on top, frame-synced. Frames where face detection dropped out
+  are flagged red (the pipeline reuses the last known box rather than
+  skipping the frame — a real source of noise).
 - **Raw vs. filtered signal charts** — the forehead green-channel series and
   chest optical-flow series, before and after the Butterworth band-pass, so
   you can see what the filter actually removed.
@@ -56,8 +63,9 @@ returns, and renders:
   inside the band but clearly not a real pulse) is visible instead of hidden
   behind a single percentage.
 
-This data isn't persisted — it's returned only on the upload that requested
-it (`dev_mode=true`), not stored with the session in SQLite.
+None of this is persisted — the live overlay is stateless per-frame, and the
+replay/signal data is returned only on the upload that requested it
+(`dev_mode=true`), not stored with the session in SQLite.
 
 ## Architecture
 
@@ -78,6 +86,8 @@ backend/
 **API surface:**
 - `POST /api/sessions/upload` — `video` + `username`, optional `dev_mode`
   (`true`/`false`) to also return the tracking/signal debug payload above.
+- `POST /api/detect-face` — a single JPEG frame in, `{detected, regions}`
+  out; powers the live dev-mode overlay, stateless, nothing persisted.
 - `GET /api/sessions?username=X` — session history.
 - `DELETE /api/sessions/{id}?username=X` — remove a session (scoped to the
   matching username, same no-real-auth trust model as everything else).

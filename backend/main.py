@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 import db
-from vitals import process_video, VitalsError
+from vitals import process_video, VitalsError, detect_face_regions_from_bytes
 
 
 @asynccontextmanager
@@ -69,6 +69,21 @@ async def upload_session(video: UploadFile, username: str = Form(...), dev_mode:
     result["id"] = session_id
     result["username"] = username
     return result
+
+
+@app.post("/api/detect-face")
+async def detect_face(frame: UploadFile):
+    # Lightweight, stateless single-frame detection for the live dev-mode
+    # preview overlay - deliberately reuses the exact same detector +
+    # ROI math as the real pipeline (see detect_face_regions_from_bytes)
+    # instead of a separate client-side detector, so what's shown live
+    # can't drift from what a recorded clip would actually be scored on.
+    contents = await frame.read()
+    try:
+        regions = detect_face_regions_from_bytes(contents)
+    except VitalsError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"detected": regions is not None, "regions": regions}
 
 
 @app.get("/api/sessions")

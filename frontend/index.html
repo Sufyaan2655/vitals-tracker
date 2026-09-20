@@ -4,15 +4,24 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Vitals Tracker</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>%E2%9D%A4%EF%B8%8F</text></svg>" />
+<meta name="description" content="Heart rate and breathing rate, measured from a webcam clip." />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 17h5l2.5-7 4 14L17 11l2 6h11' fill='none' stroke='%23ff4d5e' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
   <div class="app">
     <header>
-      <h1>Vitals Tracker</h1>
-      <p class="subtitle">Heart rate &amp; breathing rate, extracted from your webcam. No wearable required.</p>
+      <div class="brand">
+        <svg class="brand-mark" viewBox="0 0 64 24" aria-hidden="true">
+          <polyline points="0,12 14,12 19,3 25,21 30,8 34,12 64,12" />
+        </svg>
+        <h1>Vitals Tracker</h1>
+      </div>
+      <p class="subtitle">Heart rate &amp; breathing rate, read straight out of a webcam clip. No wearable required.</p>
     </header>
 
     <section class="card">
@@ -22,14 +31,18 @@
       </label>
 
       <div class="camera-row">
-        <video id="preview" autoplay muted playsinline></video>
+        <div class="preview-wrap">
+          <video id="preview" autoplay muted playsinline></video>
+          <canvas id="liveOverlayCanvas"></canvas>
+          <div id="liveTrackingStatus" class="live-tracking-status hidden"></div>
+        </div>
         <div class="camera-controls">
           <button id="startCamera" class="btn">Enable camera</button>
           <button id="recordBtn" class="btn btn-primary" disabled>Record 15s clip</button>
           <label class="toggle">
             <input type="checkbox" id="devMode" />
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            <span class="toggle-label">Dev mode - show face/ROI tracking &amp; raw signals</span>
+            <span class="toggle-label">Dev mode - live tracking overlay, raw signals &amp; FFT</span>
           </label>
           <div id="countdown" class="countdown"></div>
           <p class="hint">Sit still, face the camera, good even lighting works best.</p>

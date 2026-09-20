@@ -281,6 +281,33 @@ def read_frames(video_path: str) -> tuple[list[np.ndarray], float]:
     return frames, fps
 
 
+def detect_face_regions_from_bytes(image_bytes: bytes) -> dict | None:
+    """Decode a single JPEG/PNG frame and detect the same face/forehead/chest
+    regions process_video() uses - the one source of truth for the live
+    camera-preview overlay, so what's drawn while you're recording matches
+    exactly what the real pipeline looks at. Returns None if no face found."""
+    npimg = np.frombuffer(image_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(npimg, cv2.IMREAD_COLOR)
+    if frame is None:
+        raise VitalsError("Could not decode frame")
+
+    cascade = _get_face_cascade()
+    bbox = _detect_face_bbox(frame, cascade)
+    if bbox is None:
+        return None
+
+    height, width = frame.shape[:2]
+    fx1, fy1, fx2, fy2 = forehead_roi_bounds(bbox)
+    cy1, cy2, cx1, cx2 = chest_roi_bounds((height, width), bbox)
+    return {
+        "face_bbox": list(bbox),
+        "forehead_roi_bbox": [fx1, fy1, fx2 - fx1, fy2 - fy1],
+        "chest_roi_bbox": [cx1, cy1, cx2 - cx1, cy2 - cy1],
+        "frame_width": width,
+        "frame_height": height,
+    }
+
+
 def process_video(video_path: str, include_debug: bool = False) -> dict:
     frames, fps = read_frames(video_path)
 
