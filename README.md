@@ -23,6 +23,15 @@ reflects by a tiny, invisible-to-the-eye amount. The app:
    most other noise.
 4. Takes an FFT of the filtered signal and picks the dominant frequency — that
    frequency, converted to cycles/minute, is the heart rate.
+5. Applies a subharmonic correction before finalizing the number. A pulse
+   waveform isn't a clean sine wave — a sharp systolic upstroke followed by
+   a slower diastolic decay — so it routinely carries strong energy at 2x
+   the true pulse rate. Picking the tallest FFT bin can lock onto that
+   second harmonic and report exactly double the real rate; if there's a
+   comparably strong peak at half the frequency of the tallest bin, that
+   half-frequency is treated as the true pulse rate instead. Caught with a
+   real reference: an Apple Watch reading of ~55–60 bpm against this app's
+   reported 120 bpm — a near-exact 2x error, the textbook symptom.
 
 **Breathing rate.** Same idea, but using *motion* instead of *color*: breathing
 causes small, slow shoulder/chest movement. The app computes optical flow in

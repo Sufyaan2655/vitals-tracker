@@ -72,8 +72,26 @@ def bandpass_filter(signal: np.ndarray, fs: float, low: float, high: float, orde
     return filtfilt(b, a, signal, padlen=padlen)
 
 
-def dominant_frequency_bpm(signal: np.ndarray, fs: float) -> float:
-    """Return the dominant frequency of `signal`, expressed in cycles/minute (bpm)."""
+SUBHARMONIC_MAGNITUDE_RATIO = 0.5
+
+
+def dominant_frequency_bpm(signal: np.ndarray, fs: float, prefer_fundamental: bool = False) -> float:
+    """Return the dominant frequency of `signal`, expressed in cycles/minute (bpm).
+
+    `prefer_fundamental=True` applies a subharmonic correction: a real pulse
+    waveform isn't a clean sine wave - a sharp systolic upstroke followed by
+    a slower diastolic decay - so it routinely carries strong energy at 2x
+    the true pulse rate. Picking the single tallest FFT bin can then lock
+    onto that second harmonic and report exactly double the real heart rate
+    (this is the root cause of a 120bpm reading against a ~58bpm reference:
+    120/58 is almost exactly 2). If there's a comparably strong peak at half
+    the frequency of the tallest bin, that's almost certainly the true
+    fundamental, so it's preferred instead. Scoped to heart rate on purpose:
+    breathing motion is close enough to sinusoidal that this correction does
+    more harm than good there (it was tried and produced false positives
+    near the breathing band's low edge), so estimate_vitals_from_signals
+    only passes this for the heart-rate call.
+    """
     signal = np.asarray(signal, dtype=np.float64)
     n = len(signal)
     if n < 4:
@@ -83,7 +101,21 @@ def dominant_frequency_bpm(signal: np.ndarray, fs: float) -> float:
     magnitude = np.abs(np.fft.rfft(windowed))
     magnitude[0] = 0.0  # ignore DC component
     peak_idx = int(np.argmax(magnitude))
+    if prefer_fundamental:
+        peak_idx = _prefer_subharmonic_if_present(freqs, magnitude, peak_idx)
     return float(freqs[peak_idx] * 60.0)
+
+
+def _prefer_subharmonic_if_present(freqs: np.ndarray, magnitude: np.ndarray, peak_idx: int) -> int:
+    half_freq = freqs[peak_idx] / 2.0
+    if half_freq <= 0:
+        return peak_idx
+    half_idx = int(np.argmin(np.abs(freqs - half_freq)))
+    if half_idx == peak_idx or half_idx == 0:
+        return peak_idx
+    if magnitude[half_idx] >= SUBHARMONIC_MAGNITUDE_RATIO * magnitude[peak_idx]:
+        return half_idx
+    return peak_idx
 
 
 def is_plausible_bpm(value: float, plausible_range: tuple[float, float]) -> bool:
@@ -218,7 +250,7 @@ def estimate_vitals_from_signals(
     """
     green_detrended = detrend(green_signal)
     hr_filtered = bandpass_filter(green_detrended, fps, *HEART_RATE_BAND_HZ)
-    heart_rate = dominant_frequency_bpm(hr_filtered, fps)
+    heart_rate = dominant_frequency_bpm(hr_filtered, fps, prefer_fundamental=True)
     heart_confidence = signal_quality(hr_filtered, fps, HEART_RATE_BAND_HZ)
 
     chest_detrended = detrend(chest_flow_signal)

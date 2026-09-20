@@ -30,6 +30,7 @@ from vitals import (
     is_plausible_bpm,
     signal_quality,
     _resolve_fps,
+    _prefer_subharmonic_if_present,
     HEART_RATE_BAND_HZ,
     HEART_RATE_PLAUSIBLE_BPM,
     BREATHING_RATE_PLAUSIBLE_BPM,
@@ -63,6 +64,47 @@ def test_dominant_frequency_bpm_recovers_known_breathing_rate(breaths_per_min):
     filtered = bandpass_filter(signal, fs, 0.1, 0.6)
     estimated = dominant_frequency_bpm(filtered, fs)
     assert abs(estimated - breaths_per_min) <= 1.5
+
+
+def test_dominant_frequency_bpm_prefers_fundamental_over_stronger_second_harmonic():
+    """Reproduces a real reported bug: the app read 120 bpm against an Apple
+    Watch reference of ~55-60 bpm - almost exactly 2x, the classic rPPG
+    harmonic-confusion failure. A pulse waveform isn't a pure sine (sharp
+    upstroke, slower decay), so it carries real energy at 2x the true rate;
+    here the second harmonic is made deliberately *stronger* than the
+    fundamental, and the estimate must still land on the fundamental."""
+    fs = 30.0
+    duration_s = 15
+    t = np.arange(0, duration_s, 1.0 / fs)
+    true_bpm = 58
+    f0 = true_bpm / 60.0
+
+    fundamental = 0.6 * np.sin(2 * np.pi * f0 * t)
+    second_harmonic = 1.0 * np.sin(2 * np.pi * 2 * f0 * t)  # stronger than the fundamental
+    signal = fundamental + second_harmonic
+
+    filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
+    estimated_bpm = dominant_frequency_bpm(filtered, fs, prefer_fundamental=True)
+    assert abs(estimated_bpm - true_bpm) <= 3.0, f"expected ~{true_bpm} bpm, got {estimated_bpm:.1f} (locked onto the harmonic)"
+
+    # And confirm the correction is what's actually doing the work here: with
+    # it off, this same signal reproduces the original bug (locks onto ~116).
+    uncorrected_bpm = dominant_frequency_bpm(filtered, fs, prefer_fundamental=False)
+    assert abs(uncorrected_bpm - 2 * true_bpm) <= 3.0
+
+
+def test_prefer_subharmonic_if_present_switches_when_subharmonic_is_strong():
+    freqs = np.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5])
+    magnitude = np.array([0.0, 0.0, 8.0, 0.0, 10.0, 0.0])  # peak at 2.0, comparable energy at 1.0 (half)
+    peak_idx = 4  # freqs[4] == 2.0
+    assert _prefer_subharmonic_if_present(freqs, magnitude, peak_idx) == 2  # freqs[2] == 1.0
+
+
+def test_prefer_subharmonic_if_present_keeps_peak_when_no_real_subharmonic():
+    freqs = np.array([0.0, 0.5, 1.0, 1.5, 2.0, 2.5])
+    magnitude = np.array([0.0, 0.0, 0.2, 0.0, 10.0, 0.0])  # negligible energy at half the peak frequency
+    peak_idx = 4
+    assert _prefer_subharmonic_if_present(freqs, magnitude, peak_idx) == peak_idx
 
 
 def test_bandpass_filter_rejects_out_of_band_frequency():
