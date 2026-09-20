@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Vitals Tracker</title>
 <meta name="description" content="Heart rate and breathing rate, measured from a webcam clip." />
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 17h5l2.5-7 4 14L17 11l2 6h11' fill='none' stroke='%23ff4d5e' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 17h5l2.5-7 4 14L17 11l2 6h11' fill='none' stroke='%23bd5b34' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
@@ -22,111 +22,160 @@
         <h1>Vitals Tracker</h1>
       </div>
       <p class="subtitle">Heart rate &amp; breathing rate, read straight out of a webcam clip. No wearable required.</p>
+      <div id="accountBar" class="account-bar hidden">
+        <span>Signed in as <strong id="accountName"></strong></span>
+        <button id="signOutBtn" class="link-btn">Sign out</button>
+      </div>
     </header>
 
-    <section class="card">
-      <label class="field">
-        <span>Your name</span>
-        <input id="username" type="text" placeholder="e.g. sufyaan" autocomplete="off" />
-      </label>
+    <section id="authScreen" class="card auth-card">
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" data-mode="login">Sign in</button>
+        <button type="button" class="auth-tab" data-mode="signup">Create account</button>
+      </div>
 
-      <div class="camera-row">
-        <div class="preview-wrap">
-          <video id="preview" autoplay muted playsinline></video>
-          <canvas id="liveOverlayCanvas"></canvas>
-          <div id="liveTrackingStatus" class="live-tracking-status hidden"></div>
+      <form id="authForm" autocomplete="on">
+        <label class="field">
+          <span>Username</span>
+          <input id="authUsername" name="username" type="text" placeholder="e.g. sufyaan" autocomplete="username" required />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="authPassword" name="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required minlength="8" />
+        </label>
+        <button type="submit" class="btn btn-primary" id="authSubmit">Sign in</button>
+      </form>
+      <p id="authStatus" class="status"></p>
+      <p class="hint">Your history is private to your account, stored on this server only.</p>
+    </section>
+
+    <div id="appScreen" class="hidden">
+      <section class="card">
+        <div class="camera-row">
+          <div class="preview-wrap">
+            <video id="preview" autoplay muted playsinline></video>
+            <canvas id="liveOverlayCanvas"></canvas>
+            <div id="liveTrackingStatus" class="live-tracking-status hidden"></div>
+          </div>
+          <div class="camera-controls">
+            <button id="startCamera" class="btn">Enable camera</button>
+            <button id="recordBtn" class="btn btn-primary" disabled>Record 15s clip</button>
+            <label class="toggle">
+              <input type="checkbox" id="devMode" />
+              <span class="toggle-track"><span class="toggle-thumb"></span></span>
+              <span class="toggle-label">Dev mode - live tracking overlay, raw signals &amp; FFT</span>
+            </label>
+            <div id="countdown" class="countdown"></div>
+            <p class="hint">Sit still, face the camera, good even lighting works best.</p>
+          </div>
         </div>
-        <div class="camera-controls">
-          <button id="startCamera" class="btn">Enable camera</button>
-          <button id="recordBtn" class="btn btn-primary" disabled>Record 15s clip</button>
+
+        <div id="status" class="status"></div>
+
+        <div id="results" class="results hidden">
+          <div class="stat">
+            <div class="stat-value signal-hr" id="hrValue">--</div>
+            <div class="stat-label">Heart rate (bpm)</div>
+            <div class="stat-confidence" id="hrConfidence"></div>
+            <div class="stat-plausibility hidden" id="hrPlausibility"></div>
+          </div>
+          <div class="stat">
+            <div class="stat-value signal-br" id="brValue">--</div>
+            <div class="stat-label">Breathing rate (br/min)</div>
+            <div class="stat-confidence" id="brConfidence"></div>
+            <div class="stat-plausibility hidden" id="brPlausibility"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card monitor-card">
+        <h2>Background monitoring</h2>
+        <p class="hint">
+          Records a short check-in clip every few minutes while this tab stays open (it can sit in
+          the background or another window - it doesn't need to be the active tab) and sends a
+          browser notification if a reading comes back unusually low. This needs the browser to
+          keep running; it can't check anything while the tab is closed or the computer is asleep.
+        </p>
+        <div class="monitor-controls">
           <label class="toggle">
-            <input type="checkbox" id="devMode" />
+            <input type="checkbox" id="monitorToggle" />
             <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            <span class="toggle-label">Dev mode - live tracking overlay, raw signals &amp; FFT</span>
+            <span class="toggle-label">Monitor in the background</span>
           </label>
-          <div id="countdown" class="countdown"></div>
-          <p class="hint">Sit still, face the camera, good even lighting works best.</p>
+          <label class="field monitor-interval">
+            <span>Check every</span>
+            <select id="monitorInterval">
+              <option value="5">5 minutes</option>
+              <option value="10" selected>10 minutes</option>
+              <option value="15">15 minutes</option>
+              <option value="30">30 minutes</option>
+            </select>
+          </label>
         </div>
-      </div>
+        <p id="monitorStatus" class="status"></p>
+      </section>
 
-      <div id="status" class="status"></div>
+      <section id="devInsights" class="card hidden">
+        <h2>Dev insights</h2>
+        <p class="hint">What the algorithm actually looked at and measured on your last clip.</p>
 
-      <div id="results" class="results hidden">
-        <div class="stat">
-          <div class="stat-value signal-hr" id="hrValue">--</div>
-          <div class="stat-label">Heart rate (bpm)</div>
-          <div class="stat-confidence" id="hrConfidence"></div>
-          <div class="stat-plausibility hidden" id="hrPlausibility"></div>
+        <div class="overlay-wrap">
+          <video id="replayVideo" playsinline muted controls loop></video>
+          <canvas id="overlayCanvas"></canvas>
         </div>
-        <div class="stat">
-          <div class="stat-value signal-br" id="brValue">--</div>
-          <div class="stat-label">Breathing rate (br/min)</div>
-          <div class="stat-confidence" id="brConfidence"></div>
-          <div class="stat-plausibility hidden" id="brPlausibility"></div>
+        <div class="legend">
+          <span class="legend-item"><span class="swatch swatch-face"></span>Face detection</span>
+          <span class="legend-item"><span class="swatch swatch-forehead"></span>Forehead ROI (heart rate signal)</span>
+          <span class="legend-item"><span class="swatch swatch-chest"></span>Chest/shoulder ROI (breathing signal)</span>
         </div>
-      </div>
-    </section>
+        <p id="faceDropoutWarning" class="hint warning hidden"></p>
 
-    <section id="devInsights" class="card hidden">
-      <h2>Dev insights</h2>
-      <p class="hint">What the algorithm actually looked at and measured on your last clip.</p>
+        <div class="chart-grid">
+          <div class="chart-box">
+            <h3>Heart-rate signal (forehead green channel)</h3>
+            <canvas id="hrSignalChart" height="180"></canvas>
+          </div>
+          <div class="chart-box">
+            <h3>Heart-rate spectrum (FFT)</h3>
+            <canvas id="hrFftChart" height="180"></canvas>
+          </div>
+          <div class="chart-box">
+            <h3>Breathing signal (chest motion)</h3>
+            <canvas id="brSignalChart" height="180"></canvas>
+          </div>
+          <div class="chart-box">
+            <h3>Breathing spectrum (FFT)</h3>
+            <canvas id="brFftChart" height="180"></canvas>
+          </div>
+        </div>
+      </section>
 
-      <div class="overlay-wrap">
-        <video id="replayVideo" playsinline muted controls loop></video>
-        <canvas id="overlayCanvas"></canvas>
-      </div>
-      <div class="legend">
-        <span class="legend-item"><span class="swatch swatch-face"></span>Face detection</span>
-        <span class="legend-item"><span class="swatch swatch-forehead"></span>Forehead ROI (heart rate signal)</span>
-        <span class="legend-item"><span class="swatch swatch-chest"></span>Chest/shoulder ROI (breathing signal)</span>
-      </div>
-      <p id="faceDropoutWarning" class="hint warning hidden"></p>
+      <section class="card">
+        <h2>History</h2>
+        <div id="historyStats" class="stats-row"></div>
+        <canvas id="trendsChart" height="120"></canvas>
+        <canvas id="confidenceChart" height="100"></canvas>
+        <p id="noHistory" class="hint">No sessions yet - record a clip above to start your history.</p>
 
-      <div class="chart-grid">
-        <div class="chart-box">
-          <h3>Heart-rate signal (forehead green channel)</h3>
-          <canvas id="hrSignalChart" height="180"></canvas>
+        <div id="historyTableWrap" class="hidden">
+          <div class="history-actions">
+            <button id="exportCsv" class="btn">Export CSV</button>
+          </div>
+          <table id="historyTable" class="history-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>HR</th>
+                <th>BR</th>
+                <th>Confidence (HR / BR)</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="historyTableBody"></tbody>
+          </table>
         </div>
-        <div class="chart-box">
-          <h3>Heart-rate spectrum (FFT)</h3>
-          <canvas id="hrFftChart" height="180"></canvas>
-        </div>
-        <div class="chart-box">
-          <h3>Breathing signal (chest motion)</h3>
-          <canvas id="brSignalChart" height="180"></canvas>
-        </div>
-        <div class="chart-box">
-          <h3>Breathing spectrum (FFT)</h3>
-          <canvas id="brFftChart" height="180"></canvas>
-        </div>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>History</h2>
-      <div id="historyStats" class="stats-row"></div>
-      <canvas id="trendsChart" height="120"></canvas>
-      <canvas id="confidenceChart" height="100"></canvas>
-      <p id="noHistory" class="hint">No sessions yet - record a clip above to start your history.</p>
-
-      <div id="historyTableWrap" class="hidden">
-        <div class="history-actions">
-          <button id="exportCsv" class="btn">Export CSV</button>
-        </div>
-        <table id="historyTable" class="history-table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>HR</th>
-              <th>BR</th>
-              <th>Confidence (HR / BR)</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="historyTableBody"></tbody>
-        </table>
-      </div>
-    </section>
+      </section>
+    </div>
   </div>
 
   <script src="app.js"></script>

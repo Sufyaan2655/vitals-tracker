@@ -3,10 +3,11 @@ End-to-end test: hit the real FastAPI app (in-process, via TestClient) with a
 synthetic video file that has an actual detectable face-like pattern drawn on
 it, and confirm the whole request -> processing -> storage -> response path
 works. Uses a temporary DB file so it doesn't pollute the real vitals.db.
-"""
 
-import os
-import tempfile
+Sessions belong to a real signed-in account now (auth.py), not a typed
+username - every session-scoped test signs up a throwaway account first and
+reuses the TestClient's cookie jar, exactly like a real browser would.
+"""
 
 import cv2
 import numpy as np
@@ -16,13 +17,25 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
-    # Point the app at a throwaway DB for this test run.
+    # Point the app at throwaway DB + session-signing-secret files so this
+    # test run can't read/write real local state.
     import db as db_module
     monkeypatch.setattr(db_module, "DB_PATH", tmp_path / "test_vitals.db")
+
+    import auth as auth_module
+    monkeypatch.setattr(auth_module, "_SECRET_KEY_PATH", tmp_path / "test_session_secret")
 
     import main
     with TestClient(main.app) as c:
         yield c
+
+
+def signup(client, username="test_user", password="correct horse battery"):
+    """Sign up a throwaway account; the TestClient keeps the session cookie
+    for subsequent requests, exactly like a real browser would."""
+    response = client.post("/api/auth/signup", data={"username": username, "password": password})
+    assert response.status_code == 200, response.text
+    return response.json()
 
 
 def _draw_face_like_frame(width, height, cx, cy, face_radius, green_value):
@@ -57,7 +70,67 @@ def _write_synthetic_clip(path, fps=30, duration_s=8, bpm=75):
     writer.release()
 
 
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+def test_signup_creates_account_and_signs_in(client):
+    body = signup(client, "new_user", "correct horse battery")
+    assert body["username"] == "new_user"
+    assert "id" in body
+
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["username"] == "new_user"
+
+
+def test_signup_rejects_duplicate_username(client):
+    signup(client, "taken_user")
+    dupe = client.post("/api/auth/signup", data={"username": "taken_user", "password": "another password"})
+    assert dupe.status_code == 409
+
+
+def test_signup_rejects_short_password(client):
+    response = client.post("/api/auth/signup", data={"username": "short_pw", "password": "short"})
+    assert response.status_code == 422
+
+
+def test_login_with_correct_password_succeeds(client):
+    signup(client, "login_user", "correct horse battery")
+    client.post("/api/auth/logout")
+
+    login = client.post("/api/auth/login", data={"username": "login_user", "password": "correct horse battery"})
+    assert login.status_code == 200
+    assert client.get("/api/auth/me").status_code == 200
+
+
+def test_login_with_wrong_password_fails(client):
+    signup(client, "login_user2", "correct horse battery")
+    client.post("/api/auth/logout")
+
+    login = client.post("/api/auth/login", data={"username": "login_user2", "password": "wrong password"})
+    assert login.status_code == 401
+
+
+def test_logout_clears_session(client):
+    signup(client, "logout_user")
+    assert client.get("/api/auth/me").status_code == 200
+
+    client.post("/api/auth/logout")
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_session_endpoints_require_auth(client):
+    assert client.get("/api/sessions").status_code == 401
+    assert client.delete("/api/sessions/1").status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Session upload / history, now scoped to a real account
+# ---------------------------------------------------------------------------
+
 def test_upload_endpoint_processes_synthetic_clip_and_stores_session(client, tmp_path):
+    signup(client, "test_user")
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=75)
 
@@ -65,17 +138,15 @@ def test_upload_endpoint_processes_synthetic_clip_and_stores_session(client, tmp
         response = client.post(
             "/api/sessions/upload",
             files={"video": ("clip.mp4", f, "video/mp4")},
-            data={"username": "test_user"},
         )
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert "heart_rate_bpm" in body
     assert "breathing_rate_bpm" in body
-    assert body["username"] == "test_user"
     assert body["num_frames"] > 0
 
-    history = client.get("/api/sessions", params={"username": "test_user"})
+    history = client.get("/api/sessions")
     assert history.status_code == 200
     sessions = history.json()
     assert len(sessions) == 1
@@ -121,6 +192,7 @@ def test_detect_face_endpoint_reports_no_face_on_blank_frame(client):
 
 
 def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client, tmp_path):
+    signup(client, "dev_user")
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=75, duration_s=8)
 
@@ -128,7 +200,7 @@ def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client,
         response = client.post(
             "/api/sessions/upload",
             files={"video": ("clip.mp4", f, "video/mp4")},
-            data={"username": "dev_user", "dev_mode": "true"},
+            data={"dev_mode": "true"},
         )
 
     assert response.status_code == 200, response.text
@@ -154,50 +226,48 @@ def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client,
         plain_response = client.post(
             "/api/sessions/upload",
             files={"video": ("clip.mp4", f, "video/mp4")},
-            data={"username": "dev_user"},
         )
     assert "debug" not in plain_response.json()
 
 
 def test_delete_session_removes_it_from_history(client, tmp_path):
+    signup(client, "delete_user")
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=70, duration_s=8)
 
     with open(clip_path, "rb") as f:
-        upload = client.post(
-            "/api/sessions/upload",
-            files={"video": ("clip.mp4", f, "video/mp4")},
-            data={"username": "delete_user"},
-        )
+        upload = client.post("/api/sessions/upload", files={"video": ("clip.mp4", f, "video/mp4")})
     session_id = upload.json()["id"]
 
-    delete_response = client.delete(f"/api/sessions/{session_id}", params={"username": "delete_user"})
+    delete_response = client.delete(f"/api/sessions/{session_id}")
     assert delete_response.status_code == 200
 
-    history = client.get("/api/sessions", params={"username": "delete_user"})
+    history = client.get("/api/sessions")
     assert history.json() == []
 
 
-def test_delete_session_requires_matching_username(client, tmp_path):
+def test_delete_session_requires_owning_account(client, tmp_path):
+    signup(client, "owner_user")
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=70, duration_s=8)
 
     with open(clip_path, "rb") as f:
-        upload = client.post(
-            "/api/sessions/upload",
-            files={"video": ("clip.mp4", f, "video/mp4")},
-            data={"username": "owner_user"},
-        )
+        upload = client.post("/api/sessions/upload", files={"video": ("clip.mp4", f, "video/mp4")})
     session_id = upload.json()["id"]
 
-    delete_response = client.delete(f"/api/sessions/{session_id}", params={"username": "someone_else"})
+    # Switch accounts (a fresh signup overwrites the client's session cookie).
+    signup(client, "someone_else")
+    delete_response = client.delete(f"/api/sessions/{session_id}")
     assert delete_response.status_code == 404
 
-    history = client.get("/api/sessions", params={"username": "owner_user"})
+    client.post("/api/auth/logout")
+    client.post("/api/auth/login", data={"username": "owner_user", "password": "correct horse battery"})
+    history = client.get("/api/sessions")
     assert len(history.json()) == 1
 
 
 def test_upload_endpoint_rejects_too_short_clip(client, tmp_path):
+    signup(client, "test_user")
     clip_path = str(tmp_path / "short.mp4")
     _write_synthetic_clip(clip_path, duration_s=1, bpm=75)
 
@@ -205,7 +275,6 @@ def test_upload_endpoint_rejects_too_short_clip(client, tmp_path):
         response = client.post(
             "/api/sessions/upload",
             files={"video": ("short.mp4", f, "video/mp4")},
-            data={"username": "test_user"},
         )
 
     assert response.status_code == 422

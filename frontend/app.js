@@ -1,6 +1,17 @@
 const API_BASE = ""; // same-origin: FastAPI serves this file itself
 
-const usernameInput = document.getElementById("username");
+const authScreen = document.getElementById("authScreen");
+const appScreen = document.getElementById("appScreen");
+const accountBar = document.getElementById("accountBar");
+const accountName = document.getElementById("accountName");
+const signOutBtn = document.getElementById("signOutBtn");
+const authForm = document.getElementById("authForm");
+const authTabs = Array.from(document.querySelectorAll(".auth-tab"));
+const authUsername = document.getElementById("authUsername");
+const authPassword = document.getElementById("authPassword");
+const authSubmit = document.getElementById("authSubmit");
+const authStatus = document.getElementById("authStatus");
+
 const preview = document.getElementById("preview");
 const startCameraBtn = document.getElementById("startCamera");
 const recordBtn = document.getElementById("recordBtn");
@@ -27,6 +38,10 @@ const faceDropoutWarning = document.getElementById("faceDropoutWarning");
 
 const liveOverlayCanvas = document.getElementById("liveOverlayCanvas");
 const liveTrackingStatus = document.getElementById("liveTrackingStatus");
+
+const monitorToggle = document.getElementById("monitorToggle");
+const monitorInterval = document.getElementById("monitorInterval");
+const monitorStatus = document.getElementById("monitorStatus");
 
 const RECORD_SECONDS = 15;
 // Must match backend/vitals.py's HEART_RATE_BAND_HZ / BREATHING_BAND_HZ - the
@@ -75,23 +90,14 @@ let liveTrackingTimer = null;
 let liveDetectInFlight = false;
 const liveCaptureCanvas = document.createElement("canvas");
 
-// Remember the last-used name/dev-mode preference across visits (this is a
-// normal local web app running in the user's own browser, not an embedded
-// preview, so localStorage behaves normally here).
+// Remember the dev-mode preference across visits (this is a normal local
+// web app running in the user's own browser, not an embedded preview, so
+// localStorage behaves normally here).
 try {
-  const savedName = localStorage.getItem("vitals_username");
-  if (savedName) usernameInput.value = savedName;
   devModeToggle.checked = localStorage.getItem("vitals_dev_mode") === "1";
 } catch (e) {
   /* private browsing / storage disabled - not fatal, just skip persistence */
 }
-
-usernameInput.addEventListener("change", () => {
-  try {
-    localStorage.setItem("vitals_username", usernameInput.value.trim());
-  } catch (e) {}
-  refreshHistory();
-});
 
 devModeToggle.addEventListener("change", () => {
   try {
@@ -109,19 +115,125 @@ function setStatus(message, isError = false) {
   statusEl.classList.toggle("error", isError);
 }
 
-function currentUsername() {
-  return usernameInput.value.trim() || "anonymous";
+// ---------------------------------------------------------------------------
+// Auth: sign in / create account / sign out. Session state lives entirely in
+// an HttpOnly cookie the server sets - fetch() sends it automatically on
+// same-origin requests, nothing to manage here beyond checking who (if
+// anyone) is signed in and reacting to a 401 by showing the auth screen.
+// ---------------------------------------------------------------------------
+
+let authMode = "login";
+
+function setAuthMode(mode) {
+  authMode = mode;
+  authTabs.forEach((tab) => tab.classList.toggle("active", tab.dataset.mode === mode));
+  authSubmit.textContent = mode === "login" ? "Sign in" : "Create account";
+  authPassword.autocomplete = mode === "login" ? "current-password" : "new-password";
+  authStatus.textContent = "";
+  authStatus.classList.remove("error");
+}
+
+authTabs.forEach((tab) => {
+  tab.addEventListener("click", () => setAuthMode(tab.dataset.mode));
+});
+
+authForm.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const username = authUsername.value.trim();
+  const password = authPassword.value;
+  if (!username || !password) return;
+
+  authSubmit.disabled = true;
+  authStatus.textContent = "";
+  authStatus.classList.remove("error");
+
+  try {
+    const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/signup";
+    const fd = new FormData();
+    fd.append("username", username);
+    fd.append("password", password);
+    const res = await fetch(`${API_BASE}${endpoint}`, { method: "POST", body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || "Something went wrong");
+    enterApp(data.username);
+  } catch (err) {
+    authStatus.textContent = err.message;
+    authStatus.classList.add("error");
+  } finally {
+    authSubmit.disabled = false;
+  }
+});
+
+signOutBtn.addEventListener("click", async () => {
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, { method: "POST" });
+  } catch (e) {}
+  stopCamera();
+  stopBackgroundMonitor();
+  showAuthScreen();
+});
+
+function showAuthScreen() {
+  authScreen.classList.remove("hidden");
+  appScreen.classList.add("hidden");
+  accountBar.classList.add("hidden");
+  authPassword.value = "";
+  authStatus.textContent = "";
+  authStatus.classList.remove("error");
+}
+
+function enterApp(username) {
+  authScreen.classList.add("hidden");
+  appScreen.classList.remove("hidden");
+  accountBar.classList.remove("hidden");
+  accountName.textContent = username;
+  refreshHistory();
+  restoreBackgroundMonitorPreference();
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch(`${API_BASE}/api/auth/me`);
+    if (!res.ok) {
+      showAuthScreen();
+      return;
+    }
+    const data = await res.json();
+    enterApp(data.username);
+  } catch (err) {
+    showAuthScreen();
+  }
+}
+
+// A 401 from any authenticated call means the session cookie expired or was
+// cleared elsewhere - fall back to the sign-in screen instead of leaving the
+// app stuck showing stale data it can no longer fetch.
+async function authedFetch(url, options) {
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    stopCamera();
+    stopBackgroundMonitor();
+    showAuthScreen();
+  }
+  return res;
 }
 
 // ---------------------------------------------------------------------------
 // Camera: enable/disable toggle.
 // ---------------------------------------------------------------------------
 
-startCameraBtn.addEventListener("click", async () => {
+startCameraBtn.addEventListener("click", () => {
   if (cameraOn) {
     stopCamera();
-    return;
+  } else {
+    enableCamera();
   }
+});
+
+// Awaitable, reusable by both the button and background monitoring (which
+// needs to know whether the camera actually came on before scheduling
+// checks - a fire-and-forget button.click() can't be awaited for that).
+async function enableCamera() {
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
       video: { width: 640, height: 480, facingMode: "user" },
@@ -133,13 +245,15 @@ startCameraBtn.addEventListener("click", async () => {
     startCameraBtn.textContent = "Disable camera";
     setStatus("Camera ready. Sit still, face well-lit, then record a clip.");
     if (devModeToggle.checked) startLiveTracking();
+    return true;
   } catch (err) {
     setStatus(
       "Couldn't access the camera. Check browser permissions and that no other app is using it.",
       true
     );
+    return false;
   }
-});
+}
 
 function stopCamera() {
   if (mediaStream) {
@@ -152,54 +266,70 @@ function stopCamera() {
   startCameraBtn.textContent = "Enable camera";
   setStatus("Camera off.");
   stopLiveTracking();
+  if (monitorToggle.checked) stopBackgroundMonitor();
 }
 
-recordBtn.addEventListener("click", () => {
-  if (!mediaStream) return;
-  recordedChunks = [];
+recordBtn.addEventListener("click", () => startRecording({ silent: false }));
 
-  const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
-    ? "video/webm;codecs=vp8"
-    : "video/webm";
-  mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
-
-  mediaRecorder.ondataavailable = (e) => {
-    if (e.data.size > 0) recordedChunks.push(e.data);
-  };
-  mediaRecorder.onstop = handleRecordingComplete;
-
-  mediaRecorder.start();
-  recordBtn.disabled = true;
-  startCameraBtn.disabled = true; // don't let the stream get killed mid-recording
-  resultsEl.classList.add("hidden");
-  devInsightsEl.classList.add("hidden");
-  overlayLoopActive = false;
-  setStatus("Recording... stay still.");
-
-  let remaining = RECORD_SECONDS;
-  countdownEl.textContent = `${remaining}s remaining`;
-  const timer = setInterval(() => {
-    remaining -= 1;
-    countdownEl.textContent = remaining > 0 ? `${remaining}s remaining` : "";
-    if (remaining <= 0) {
-      clearInterval(timer);
-      mediaRecorder.stop();
+// `silent` skips the visible countdown/status/result-card churn - used by
+// background monitoring, which records every few minutes without hijacking
+// the screen each time. Returns the upload result (or null on failure)
+// either way, so a caller can act on it (e.g. decide whether to notify).
+function startRecording({ silent }) {
+  return new Promise((resolve) => {
+    if (!mediaStream) {
+      resolve(null);
+      return;
     }
-  }, 1000);
-});
+    recordedChunks = [];
 
-async function handleRecordingComplete() {
-  setStatus("Processing clip (detecting face, extracting pulse signal)...");
+    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+      ? "video/webm;codecs=vp8"
+      : "video/webm";
+    mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordedChunks.push(e.data);
+    };
+    mediaRecorder.onstop = async () => {
+      const data = await handleRecordingComplete({ silent });
+      resolve(data);
+    };
+
+    mediaRecorder.start();
+    if (!silent) {
+      recordBtn.disabled = true;
+      startCameraBtn.disabled = true; // don't let the stream get killed mid-recording
+      resultsEl.classList.add("hidden");
+      devInsightsEl.classList.add("hidden");
+      overlayLoopActive = false;
+      setStatus("Recording... stay still.");
+    }
+
+    let remaining = RECORD_SECONDS;
+    if (!silent) countdownEl.textContent = `${remaining}s remaining`;
+    const timer = setInterval(() => {
+      remaining -= 1;
+      if (!silent) countdownEl.textContent = remaining > 0 ? `${remaining}s remaining` : "";
+      if (remaining <= 0) {
+        clearInterval(timer);
+        mediaRecorder.stop();
+      }
+    }, 1000);
+  });
+}
+
+async function handleRecordingComplete({ silent = false } = {}) {
+  if (!silent) setStatus("Processing clip (detecting face, extracting pulse signal)...");
   const blob = new Blob(recordedChunks, { type: "video/webm" });
-  const devMode = devModeToggle.checked;
+  const devMode = !silent && devModeToggle.checked;
 
   const formData = new FormData();
   formData.append("video", blob, "clip.webm");
-  formData.append("username", currentUsername());
   formData.append("dev_mode", devMode ? "true" : "false");
 
   try {
-    const res = await fetch(`${API_BASE}/api/sessions/upload`, {
+    const res = await authedFetch(`${API_BASE}/api/sessions/upload`, {
       method: "POST",
       body: formData,
     });
@@ -209,17 +339,23 @@ async function handleRecordingComplete() {
       throw new Error(data.detail || "Processing failed");
     }
 
-    showResult(data);
-    if (devMode && data.debug) {
-      setupDevInsights(blob, data);
+    if (!silent) {
+      showResult(data);
+      if (devMode && data.debug) {
+        setupDevInsights(blob, data);
+      }
+      setStatus("Done. Recording another clip will add to your trend line below.");
     }
-    setStatus("Done. Recording another clip will add to your trend line below.");
     await refreshHistory();
+    return data;
   } catch (err) {
-    setStatus(`Error: ${err.message}`, true);
+    if (!silent) setStatus(`Error: ${err.message}`, true);
+    return null;
   } finally {
-    recordBtn.disabled = false;
-    startCameraBtn.disabled = false;
+    if (!silent) {
+      recordBtn.disabled = false;
+      startCameraBtn.disabled = false;
+    }
   }
 }
 
@@ -409,7 +545,7 @@ function drawBox(ctx, bbox, color, label, dashed = false) {
   ctx.strokeRect(x, y, w, h);
   ctx.restore();
   ctx.fillStyle = color;
-  ctx.font = "600 12px 'Space Grotesk', sans-serif";
+  ctx.font = "600 12px 'Bricolage Grotesque', sans-serif";
   const labelY = y > 16 ? y - 5 : y + h + 14;
   ctx.fillText(label, x + 2, labelY);
 }
@@ -581,7 +717,8 @@ function renderDevCharts(data) {
 
 async function refreshHistory() {
   try {
-    const res = await fetch(`${API_BASE}/api/sessions?username=${encodeURIComponent(currentUsername())}`);
+    const res = await authedFetch(`${API_BASE}/api/sessions`);
+    if (!res.ok) return;
     const sessions = await res.json();
     renderChart(sessions);
     renderConfidenceChart(sessions);
@@ -766,9 +903,7 @@ historyTableBody.addEventListener("click", async (e) => {
   const id = btn.dataset.id;
   btn.disabled = true;
   try {
-    const res = await fetch(`${API_BASE}/api/sessions/${id}?username=${encodeURIComponent(currentUsername())}`, {
-      method: "DELETE",
-    });
+    const res = await authedFetch(`${API_BASE}/api/sessions/${id}`, { method: "DELETE" });
     if (!res.ok) throw new Error("Delete failed");
     await refreshHistory();
   } catch (err) {
@@ -779,7 +914,7 @@ historyTableBody.addEventListener("click", async (e) => {
 
 exportCsvBtn.addEventListener("click", async () => {
   try {
-    const res = await fetch(`${API_BASE}/api/sessions?username=${encodeURIComponent(currentUsername())}`);
+    const res = await authedFetch(`${API_BASE}/api/sessions`);
     const sessions = await res.json();
     if (!sessions.length) return;
 
@@ -801,7 +936,7 @@ exportCsvBtn.addEventListener("click", async () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `vitals_${currentUsername()}.csv`;
+    a.download = `vitals_${accountName.textContent || "history"}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   } catch (err) {
@@ -809,5 +944,127 @@ exportCsvBtn.addEventListener("click", async () => {
   }
 });
 
-// Load any existing history on page load (in case this browser has a saved name).
-refreshHistory();
+// ---------------------------------------------------------------------------
+// Background monitoring: while enabled, records a short check-in clip on an
+// interval and fires a browser notification if a reading comes back
+// unusually low. Honest about what this actually is - a recurring
+// getUserMedia capture from an open browser tab, not an OS-level background
+// service - it needs the tab to keep existing (it can be inactive/behind
+// other windows) and the browser process to keep running; it cannot check
+// anything with the tab closed or the machine asleep.
+// ---------------------------------------------------------------------------
+
+let monitorTimer = null;
+let monitorInFlight = false;
+
+try {
+  monitorToggle.checked = localStorage.getItem("vitals_monitor_on") === "1";
+  const savedInterval = localStorage.getItem("vitals_monitor_interval");
+  if (savedInterval) monitorInterval.value = savedInterval;
+} catch (e) {}
+
+function restoreBackgroundMonitorPreference() {
+  if (monitorToggle.checked) startBackgroundMonitor();
+}
+
+monitorToggle.addEventListener("change", async () => {
+  if (monitorToggle.checked) {
+    const started = await startBackgroundMonitor();
+    if (!started) monitorToggle.checked = false;
+  } else {
+    stopBackgroundMonitor();
+  }
+  try {
+    localStorage.setItem("vitals_monitor_on", monitorToggle.checked ? "1" : "0");
+  } catch (e) {}
+});
+
+monitorInterval.addEventListener("change", () => {
+  try {
+    localStorage.setItem("vitals_monitor_interval", monitorInterval.value);
+  } catch (e) {}
+  if (monitorTimer) {
+    stopBackgroundMonitor({ keepToggleOn: true });
+    startBackgroundMonitor();
+  }
+});
+
+async function startBackgroundMonitor() {
+  if (!("Notification" in window)) {
+    monitorStatus.textContent = "This browser doesn't support notifications - background monitoring needs them to be useful.";
+    monitorStatus.classList.add("error");
+    return false;
+  }
+  let permission = Notification.permission;
+  if (permission === "default") {
+    permission = await Notification.requestPermission();
+  }
+  if (permission !== "granted") {
+    monitorStatus.textContent = "Notifications are blocked - allow them for this site to use background monitoring.";
+    monitorStatus.classList.add("error");
+    return false;
+  }
+  if (!cameraOn) {
+    const enabled = await enableCamera();
+    if (!enabled) {
+      monitorStatus.textContent = "Couldn't enable the camera - background monitoring needs it on.";
+      monitorStatus.classList.add("error");
+      return false;
+    }
+  }
+
+  const minutes = parseInt(monitorInterval.value, 10) || 10;
+  monitorStatus.textContent = `Monitoring: checking every ${minutes} minutes while this tab stays open.`;
+  monitorStatus.classList.remove("error");
+
+  if (monitorTimer) clearInterval(monitorTimer);
+  monitorTimer = setInterval(() => runMonitorCheck(), minutes * 60 * 1000);
+  return true;
+}
+
+function stopBackgroundMonitor({ keepToggleOn = false } = {}) {
+  if (monitorTimer) {
+    clearInterval(monitorTimer);
+    monitorTimer = null;
+  }
+  if (!keepToggleOn) {
+    monitorToggle.checked = false;
+    monitorStatus.textContent = "";
+    monitorStatus.classList.remove("error");
+  }
+}
+
+async function runMonitorCheck() {
+  if (monitorInFlight || !cameraOn || recordBtn.disabled) return;
+  monitorInFlight = true;
+  try {
+    const data = await startRecording({ silent: true });
+    if (!data) return;
+    const now = new Date().toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    monitorStatus.textContent = `Last check at ${now}: ${Math.round(data.heart_rate_bpm)} bpm, ${Math.round(data.breathing_rate_bpm)} br/min.`;
+    monitorStatus.classList.remove("error");
+
+    const hrTooLow = data.heart_rate_bpm < HEART_RATE_PLAUSIBLE_BPM[0];
+    const brTooLow = data.breathing_rate_bpm < BREATHING_RATE_PLAUSIBLE_BPM[0];
+    if (hrTooLow || brTooLow) notifyLowVitals(data, hrTooLow, brTooLow);
+  } finally {
+    monitorInFlight = false;
+  }
+}
+
+function notifyLowVitals(data, hrTooLow, brTooLow) {
+  const parts = [];
+  if (hrTooLow) parts.push(`heart rate ${Math.round(data.heart_rate_bpm)} bpm`);
+  if (brTooLow) parts.push(`breathing rate ${Math.round(data.breathing_rate_bpm)} br/min`);
+  try {
+    new Notification("Vitals Tracker: unusually low reading", {
+      body: `${parts.join(" and ")} - lower than typical for resting. Could be a real reading or a tracking issue; check in when you can.`,
+      tag: "vitals-low-reading",
+    });
+  } catch (e) {
+    /* Notification constructor can throw in some contexts (e.g. service-worker-only browsers) - not fatal */
+  }
+}
+
+// Entry point: find out who (if anyone) is already signed in.
+checkAuth();

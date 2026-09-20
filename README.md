@@ -67,34 +67,62 @@ None of this is persisted — the live overlay is stateless per-frame, and the
 replay/signal data is returned only on the upload that requested it
 (`dev_mode=true`), not stored with the session in SQLite.
 
+## Accounts
+
+Real sign-up/sign-in, not a trusted typed name: passwords are hashed with
+PBKDF2-HMAC-SHA256 (200k iterations, random salt per user — stdlib only, no
+external auth dependency), and sessions are a signed, HttpOnly cookie
+(30-day expiry) verified server-side on every request. History is scoped to
+the authenticated account, so it's actually private per person instead of
+namespaced by whatever string someone typed in.
+
+## Background monitoring
+
+An opt-in mode that records a short check-in clip on an interval (5–30
+minutes, configurable) while the tab stays open, and sends a browser
+notification if a reading comes back unusually low (below the same
+resting-plausible thresholds the plausibility badge uses). Worth being
+precise about what this actually is: a recurring `getUserMedia` capture
+from an open browser tab, **not** an OS-level background service. It needs
+the browser process to keep running (the tab itself can be inactive or
+behind other windows) and cannot check anything with the tab closed or the
+computer asleep — stated plainly in the UI rather than oversold.
+
 ## Architecture
 
 ```
 frontend/            served as static files by the backend itself
-  index.html         camera capture UI + dev-mode overlay/charts + history
-  app.js              getUserMedia -> MediaRecorder -> upload -> render
+  index.html         auth screens + camera capture UI + dev-mode overlay/charts + history
+  app.js              auth + getUserMedia -> MediaRecorder -> upload -> render + background monitoring
   style.css
 
 backend/
   vitals.py          the actual signal-processing pipeline (pure + testable)
-  main.py            FastAPI app: upload/history/delete endpoints
-  db.py              SQLite persistence, one row per session
+  auth.py            password hashing (PBKDF2) + signed session tokens (stdlib only)
+  main.py            FastAPI app: auth/upload/history/delete endpoints
+  db.py              SQLite persistence: users + per-user sessions
   test_vitals.py     unit tests against synthetic sine waves (validates the math)
+  test_auth.py       unit tests for password hashing + session tokens
   test_api.py        end-to-end test hitting the real API with a synthetic clip
 ```
 
 **API surface:**
-- `POST /api/sessions/upload` — `video` + `username`, optional `dev_mode`
-  (`true`/`false`) to also return the tracking/signal debug payload above.
+- `POST /api/auth/signup` / `POST /api/auth/login` / `POST /api/auth/logout`
+  / `GET /api/auth/me` — account creation, sign-in, sign-out, and session
+  check. Sets/clears the session cookie.
+- `POST /api/sessions/upload` — `video`, optional `dev_mode` (`true`/`false`)
+  to also return the tracking/signal debug payload above. Requires a signed-
+  in session.
 - `POST /api/detect-face` — a single JPEG frame in, `{detected, regions}`
   out; powers the live dev-mode overlay, stateless, nothing persisted.
-- `GET /api/sessions?username=X` — session history.
-- `DELETE /api/sessions/{id}?username=X` — remove a session (scoped to the
-  matching username, same no-real-auth trust model as everything else).
+- `GET /api/sessions` — the signed-in account's session history.
+- `DELETE /api/sessions/{id}` — remove a session (scoped to the
+  authenticated account).
 
 **History view** also shows summary stats (session count, average HR/BR, HR
 range), a confidence-over-time chart alongside the bpm trend chart, a
-per-session table, and a CSV export of the full history.
+per-session table (flagging plausibility outliers), and a CSV export of the
+full history.
 
 Everything runs from one origin (`http://localhost:8000`) because `getUserMedia`
 requires a "secure context," and browsers treat `localhost` as secure even
@@ -108,10 +136,10 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Then open `http://localhost:8000` in a browser, allow camera access, enter a
-name, and record a 15-second clip while sitting still and facing the camera in
-good, even lighting. Record a few clips over different days/times to see your
-trend line build up.
+Then open `http://localhost:8000` in a browser, create an account (or sign
+in), allow camera access, and record a 15-second clip while sitting still
+and facing the camera in good, even lighting. Record a few clips over
+different days/times to see your trend line build up.
 
 ## Running the tests
 
@@ -123,9 +151,12 @@ python -m pytest -v
 `test_vitals.py` validates the actual math (band-pass filter + FFT peak
 detection) against synthetic signals with a known, injected frequency — this
 is the part that matters for correctness, independent of how good the face
-detector is. `test_api.py` draws a synthetic face-like frame, encodes it into a
-real video file, and pushes it through the actual HTTP API end to end,
-confirming the full upload → process → store → respond path works.
+detector is. `test_auth.py` validates password hashing round-trips, rejects
+tampered/expired session tokens, and confirms salts are unique per hash.
+`test_api.py` draws a synthetic face-like frame, encodes it into a real
+video file, and pushes it through the actual HTTP API end to end (signing
+up a throwaway account first, like a real browser would), confirming the
+full auth → upload → process → store → respond path works.
 
 ## Known limitations (worth stating honestly — this matters for interviews)
 
@@ -156,10 +187,6 @@ level over time, amplifying, and reconstructing. Adding an endpoint that
 returns a magnified preview clip is a fantastic demo upgrade — arguably the
 single best "wow" addition to this project.
 
-**Week 2 — real accounts.** Swap the plain `username` string for actual
-signup/login (hashed passwords or OAuth) so sessions are properly private
-per-user instead of trusted to whatever name someone types in.
-
 **Week 2–3 — signal-quality-aware UI.** Show a live "tracking quality" meter
 during recording (e.g., face-detection rate over the last second) so people
 get real-time feedback instead of finding out after 15 seconds that the clip
@@ -167,7 +194,12 @@ was unusable.
 
 **Week 3 — deployment.** Deploy behind real HTTPS (Caddy/Let's Encrypt is the
 easy path) so it's usable outside `localhost`, and swap SQLite for Postgres if
-you want multiple people using it concurrently.
+you want multiple people using it concurrently. The session cookie already
+sets `Secure` automatically based on the request's scheme (`https` → on,
+`http://localhost` dev → off, no code change needed at deploy time), and
+passwords are already properly hashed — this step is mostly about
+rate-limiting login attempts and a password-reset flow before opening the
+door to strangers.
 
 **Stretch — validate against a real reference.** If you have access to a
 pulse oximeter or fitness tracker with a heart-rate sensor, record simultaneous

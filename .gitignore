@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 backend/vitals.db
 *.db
+backend/.session_secret
 .DS_Store
 CLAUDE.md
 PRODUCT.md
