@@ -31,7 +31,7 @@ body {
 .app {
   max-width: 720px;
   margin: 0 auto;
-  padding: 40px 20px 72px;
+  padding: 96px 20px 72px;
 }
 
 /* A focused single-task page stays a single column at every width - that is
@@ -46,17 +46,9 @@ body {
   .app { max-width: 900px; }
 }
 
-header { margin-bottom: 28px; }
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .brand-mark {
-  width: 44px;
-  height: 20px;
+  width: 40px;
+  height: 18px;
   flex-shrink: 0;
   fill: none;
   stroke: var(--accent);
@@ -87,35 +79,90 @@ header { margin-bottom: 28px; }
   }
 }
 
-header h1 {
-  margin: 0;
-  font-family: var(--sans);
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
+/* Site nav: fixed to the viewport, moves with scroll on purpose so Home /
+   How it works / About / sign-in stay reachable from anywhere on a page
+   that's now long enough to need that. */
+.site-nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: rgba(255, 253, 247, 0.92);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
 }
 
-.header-top {
+.site-nav-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 20px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
 }
 
-.subtitle {
-  margin: 8px 0 0;
-  color: var(--text-dim);
-  font-family: var(--serif);
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--text);
+  font-family: var(--sans);
   font-size: 16px;
-  line-height: 1.5;
-  max-width: 48ch;
+  font-weight: 600;
+  flex-shrink: 0;
 }
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  flex: 1;
+}
+
+.nav-link {
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+
+.nav-link:hover { color: var(--accent); }
 
 .auth-widget {
   position: relative;
   flex-shrink: 0;
-  padding-top: 6px;
+}
+
+/* Below ~700px there isn't room for brand + three nav links + the auth
+   control without wrapping or truncation - drop the link row rather than
+   shrink it into illegibility; Home/How it works/About are all one scroll
+   away anyway on a single-page site. */
+@media (max-width: 700px) {
+  .nav-links { display: none; }
+  .site-nav-inner { gap: 12px; }
+}
+
+@media (max-width: 480px) {
+  .site-nav-inner { flex-wrap: wrap; row-gap: 6px; }
+  .account-bar strong { max-width: 90px; }
+}
+
+@media (max-width: 420px) {
+  #authToggleBtn { font-size: 12px; }
+}
+
+/* Anchor-scrolled sections land below the fixed nav, not hidden under it. */
+#top, #how-it-works, #see-it-in-action, #recorder, #about {
+  scroll-margin-top: 76px;
+}
+
+html { scroll-behavior: smooth; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
 }
 
 .account-bar {
@@ -128,7 +175,16 @@ header h1 {
   white-space: nowrap;
 }
 
-.account-bar strong { color: var(--text); font-weight: 600; }
+.account-bar strong {
+  color: var(--text);
+  font-weight: 600;
+  display: inline-block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 
 .link-btn {
   appearance: none;
@@ -178,6 +234,219 @@ header h1 {
 
 #devInsights h2::before { background: var(--text-dim); }
 #appScreen > .card:last-of-type h2::before { background: var(--accent-2); }
+
+/* Marketing sections (Persuade mode): hero, how-it-works, the live example,
+   and about. Distinct from the tool's card treatment - no border, no card
+   shadow, wider breathing room - so the page reads as two registers: an
+   introduction, then a focused tool. */
+.section-title {
+  margin: 0 0 14px;
+  font-family: var(--sans);
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  line-height: 1.15;
+}
+
+.section-desc {
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--text-dim);
+  max-width: 62ch;
+}
+
+.hero {
+  padding: 32px 0 48px;
+  text-align: center;
+}
+
+.hero-title {
+  margin: 0 auto 18px;
+  max-width: 18ch;
+  font-family: var(--sans);
+  font-size: 44px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.08;
+}
+
+@media (min-width: 640px) {
+  .hero-title { font-size: 56px; }
+}
+
+.hero-subtitle {
+  margin: 0 auto 28px;
+  max-width: 56ch;
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.65;
+  color: var(--text-dim);
+}
+
+.hero-cta {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hero-cta .btn {
+  padding: 13px 24px;
+  font-size: 15px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+
+.feature-section,
+.example-section,
+.about-section {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 48px 0;
+  margin-bottom: 0;
+  border-top: 1px solid var(--border);
+}
+
+.feature-section .section-desc,
+.example-section .section-desc {
+  margin-bottom: 8px;
+}
+
+.feature-grid {
+  margin-top: 32px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 28px;
+}
+
+/* Icon sits inline with the heading rather than stacked above it in its own
+   tile - the stacked icon-square is too close to a generic template, and an
+   icon in flow reads more like editorial illustration than a UI component. */
+.feature-item {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.feature-item h3 {
+  margin: 0 0 8px;
+  font-family: var(--sans);
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.feature-item p {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+.feature-icon {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--accent);
+}
+
+.feature-icon-br { color: var(--accent-2); }
+.feature-icon-confidence { color: var(--success); }
+
+.example-section {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 32px;
+  align-items: center;
+}
+
+@media (min-width: 768px) {
+  .example-section { grid-template-columns: 1fr 1fr; }
+}
+
+.example-legend {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--text-dim);
+}
+
+.example-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.example-swatch-face { background: var(--text); }
+.example-swatch-hr { background: var(--accent); }
+.example-swatch-br { background: var(--accent-2); }
+
+.example-visual {
+  display: flex;
+  justify-content: center;
+}
+
+.example-figure {
+  width: 100%;
+  max-width: 280px;
+}
+
+.example-figure-head,
+.example-figure-shoulders {
+  fill: var(--surface-2);
+  stroke: none;
+}
+
+.example-box {
+  fill: none;
+  stroke-width: 2;
+}
+
+.example-box-face { stroke: var(--text); }
+.example-box-hr { stroke: var(--accent); }
+.example-box-br { stroke: var(--accent-2); }
+
+.example-box-label {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.example-box-label-face { fill: var(--text); }
+.example-box-label-hr { fill: var(--accent); }
+.example-box-label-br { fill: var(--accent-2); }
+
+.about-section p {
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--text-dim);
+  max-width: 68ch;
+}
+
+.about-section strong { color: var(--text); }
+
+.site-footer {
+  margin-top: 40px;
+  padding: 24px 0 0;
+  border-top: 1px solid var(--border);
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text-dim);
+  text-align: center;
+}
 
 /* Auth widget: a compact popover anchored under the header, not a full-page
    gate - trying the recorder below never requires opening this. */

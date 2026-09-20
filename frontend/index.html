@@ -8,54 +8,140 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M2 17h5l2.5-7 4 14L17 11l2 6h11' fill='none' stroke='%23bd5b34' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700;12..96,800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,500;8..60,600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="style.css" />
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 </head>
 <body>
-  <div class="app">
-    <header>
-      <div class="header-top">
-        <div class="brand">
-          <svg class="brand-mark" viewBox="0 0 64 24" aria-hidden="true">
-            <polyline points="0,12 14,12 19,3 25,21 30,8 34,12 64,12" pathLength="100" />
-          </svg>
-          <h1>Vitals Tracker</h1>
+  <nav id="siteNav" class="site-nav">
+    <div class="site-nav-inner">
+      <a href="#top" class="nav-brand">
+        <svg class="brand-mark" viewBox="0 0 64 24" aria-hidden="true">
+          <polyline points="0,12 14,12 19,3 25,21 30,8 34,12 64,12" pathLength="100" />
+        </svg>
+        <span>Vitals Tracker</span>
+      </a>
+
+      <div class="nav-links">
+        <a href="#top" class="nav-link">Home</a>
+        <a href="#how-it-works" class="nav-link">How it works</a>
+        <a href="#about" class="nav-link">About</a>
+      </div>
+
+      <div class="auth-widget">
+        <button id="authToggleBtn" class="link-btn">Sign in to save history</button>
+        <div id="accountBar" class="account-bar hidden">
+          <span>Signed in as <strong id="accountName"></strong></span>
+          <button id="signOutBtn" class="link-btn">Sign out</button>
         </div>
 
-        <div class="auth-widget">
-          <button id="authToggleBtn" class="link-btn">Sign in to save history</button>
-          <div id="accountBar" class="account-bar hidden">
-            <span>Signed in as <strong id="accountName"></strong></span>
-            <button id="signOutBtn" class="link-btn">Sign out</button>
+        <div id="authPanel" class="auth-panel hidden">
+          <div class="auth-tabs">
+            <button type="button" class="auth-tab active" data-mode="login">Sign in</button>
+            <button type="button" class="auth-tab" data-mode="signup">Create account</button>
           </div>
+          <form id="authForm" autocomplete="on">
+            <label class="field">
+              <span>Username</span>
+              <input id="authUsername" name="username" type="text" placeholder="e.g. sufyaan" autocomplete="username" required />
+            </label>
+            <label class="field">
+              <span>Password</span>
+              <input id="authPassword" name="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required minlength="8" />
+            </label>
+            <button type="submit" class="btn btn-primary" id="authSubmit">Sign in</button>
+          </form>
+          <p id="authStatus" class="status"></p>
+          <p class="hint">Optional - the recorder works without an account. Sign in only if you want your results saved and trended over time.</p>
+        </div>
+      </div>
+    </div>
+  </nav>
 
-          <div id="authPanel" class="auth-panel hidden">
-            <div class="auth-tabs">
-              <button type="button" class="auth-tab active" data-mode="login">Sign in</button>
-              <button type="button" class="auth-tab" data-mode="signup">Create account</button>
-            </div>
-            <form id="authForm" autocomplete="on">
-              <label class="field">
-                <span>Username</span>
-                <input id="authUsername" name="username" type="text" placeholder="e.g. sufyaan" autocomplete="username" required />
-              </label>
-              <label class="field">
-                <span>Password</span>
-                <input id="authPassword" name="password" type="password" placeholder="At least 8 characters" autocomplete="current-password" required minlength="8" />
-              </label>
-              <button type="submit" class="btn btn-primary" id="authSubmit">Sign in</button>
-            </form>
-            <p id="authStatus" class="status"></p>
-            <p class="hint">Optional - the recorder below works without an account. Sign in only if you want your results saved and trended over time.</p>
+  <div class="app">
+    <header id="top" class="hero">
+      <h1 class="hero-title">Your heart rate and breathing rate, read from a 15-second clip.</h1>
+      <p class="hero-subtitle">
+        No wearable, no extra hardware. Remote photoplethysmography (rPPG) turns tiny,
+        invisible-to-the-eye color changes in your skin into a heart rate reading - the same
+        physical principle a pulse oximeter uses, picked up here by an ordinary camera instead
+        of a dedicated sensor.
+      </p>
+      <div class="hero-cta">
+        <a href="#recorder" class="btn btn-primary">Try it now</a>
+        <a href="#how-it-works" class="btn">See how it works</a>
+      </div>
+    </header>
+
+    <section id="how-it-works" class="feature-section">
+      <h2 class="section-title">Two signals, one short clip</h2>
+      <p class="section-desc">
+        The camera never leaves your device - a clip is analyzed and, unless you're signed in,
+        thrown away immediately after. Everything below is real: the same pipeline that
+        produces your reading also produces the numbers underneath it.
+      </p>
+      <div class="feature-grid">
+        <div class="feature-item">
+          <svg class="feature-icon feature-icon-face" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 15c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <div>
+            <h3>Face &amp; forehead tracking</h3>
+            <p>An OpenCV detector finds your face every frame and tracks a forehead region - the most motion-stable, least occluded patch of skin.</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <svg class="feature-icon feature-icon-hr" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l2-6 4 12 3-9 2 3h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div>
+            <h3>Color reveals the pulse</h3>
+            <p>Every heartbeat shifts how much green light your skin reflects, by an amount too small to see. Averaging that region per frame builds a signal a Butterworth filter and FFT can turn into a heart rate.</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <svg class="feature-icon feature-icon-br" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c2-6 4-9 9-9s7 3 9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 15v4M21 15v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <div>
+            <h3>Motion reveals breathing</h3>
+            <p>The region below your face is watched with optical flow instead of color - the small rise and fall of your chest and shoulders, band-passed to the breathing range.</p>
+          </div>
+        </div>
+        <div class="feature-item">
+          <svg class="feature-icon feature-icon-confidence" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div>
+            <h3>Confidence, shown honestly</h3>
+            <p>A reading reports how concentrated its signal's energy actually was, plus a separate check for values outside a plausible resting range - so a confidently wrong number doesn't ship silently.</p>
           </div>
         </div>
       </div>
-      <p class="subtitle">Heart rate &amp; breathing rate, read straight out of a webcam clip. No wearable required.</p>
-    </header>
+    </section>
+
+    <section id="see-it-in-action" class="example-section">
+      <div class="example-text">
+        <h2 class="section-title">Dev mode shows exactly what the algorithm sees</h2>
+        <p>
+          Flip on Dev Mode before recording and a live overlay draws the same three regions
+          the pipeline actually measures, updated live - not a mockup, the real detector
+          output. Here's what those boxes mean:
+        </p>
+        <ul class="example-legend">
+          <li><span class="example-swatch example-swatch-face"></span>Face - detected fresh every frame</li>
+          <li><span class="example-swatch example-swatch-hr"></span>Forehead ROI - the heart-rate signal source</li>
+          <li><span class="example-swatch example-swatch-br"></span>Chest ROI - the breathing signal source</li>
+        </ul>
+      </div>
+      <div class="example-visual" aria-hidden="true">
+        <svg viewBox="0 0 280 320" class="example-figure">
+          <ellipse cx="140" cy="120" rx="62" ry="72" class="example-figure-head" />
+          <path d="M60 320 Q60 210 140 205 Q220 210 220 320 Z" class="example-figure-shoulders" />
+          <rect x="82" y="52" width="116" height="140" rx="14" class="example-box example-box-face" />
+          <text x="86" y="46" class="example-box-label example-box-label-face">face</text>
+          <rect x="104" y="70" width="72" height="38" rx="6" class="example-box example-box-hr" />
+          <text x="108" y="64" class="example-box-label example-box-label-hr">forehead ROI</text>
+          <rect x="46" y="206" width="188" height="70" rx="10" class="example-box example-box-br" />
+          <text x="50" y="200" class="example-box-label example-box-label-br">chest ROI</text>
+        </svg>
+      </div>
+    </section>
 
     <div id="appScreen">
-      <section class="card">
+      <section id="recorder" class="card">
         <div class="camera-row">
           <div class="preview-wrap">
             <video id="preview" autoplay muted playsinline></video>
@@ -193,6 +279,33 @@
         </div>
       </section>
     </div>
+
+    <section id="about" class="about-section">
+      <h2 class="section-title">What this actually is - and isn't</h2>
+      <p>
+        Vitals Tracker is a personal wellness demo built on remote photoplethysmography (rPPG):
+        a heartbeat causes tiny, invisible-to-the-eye periodic changes in facial skin color as
+        blood volume shifts under the skin, the same principle a clip-on pulse oximeter uses,
+        here picked up by an ordinary webcam instead. Breathing is estimated the same way, but
+        from chest/shoulder motion rather than color.
+      </p>
+      <p>
+        <strong>It is not a medical device.</strong> Lighting, movement, and skin tone all affect
+        accuracy, and that's inherent to the technique, not a bug being hidden - which is why
+        every reading ships with a confidence score and a plausibility check instead of a bare
+        number. Treat it as a genuinely interesting piece of applied signal processing, not a
+        diagnostic tool, and don't make health decisions from it.
+      </p>
+      <p>
+        The whole pipeline - face detection, band-pass filtering, FFT peak-picking, optical
+        flow - runs locally on the server that serves this page; a recorded clip is processed
+        and, unless you're signed in and choose to keep it, discarded.
+      </p>
+    </section>
+
+    <footer class="site-footer">
+      <p>Vitals Tracker - a personal rPPG project. Not a medical device.</p>
+    </footer>
   </div>
 
   <script src="app.js"></script>
