@@ -115,7 +115,7 @@ stated plainly in the UI rather than oversold.
 ## Architecture
 
 ```
-frontend/            served as static files by the backend itself
+frontend/            served as static files (by the backend locally, by Vercel's static hosting in production)
   index.html         optional auth widget + camera capture UI + dev-mode overlay/charts + history
   app.js              optional auth + getUserMedia -> MediaRecorder -> upload -> render + background monitoring
   style.css
@@ -123,12 +123,23 @@ frontend/            served as static files by the backend itself
 backend/
   vitals.py          the actual signal-processing pipeline (pure + testable)
   auth.py            password hashing (PBKDF2) + signed session tokens (stdlib only)
-  main.py            FastAPI app: auth/upload/history/delete endpoints
-  db.py              SQLite persistence: users, per-user sessions, background jobs
+  main.py            FastAPI app: auth/upload/history/tags/delete endpoints
+  models.py          SQLAlchemy ORM models: users, recording_sessions, tags (many-to-many), jobs
+  database.py        engine/session setup - reads DATABASE_URL (Postgres in prod, SQLite for local dev)
+  db.py              CRUD functions over the ORM models - no raw SQL, no per-call connect/close
+  alembic/            versioned schema migrations (`alembic upgrade head`), not ad-hoc ALTER TABLE calls
   test_vitals.py     unit tests against synthetic sine waves (validates the math)
   test_auth.py       unit tests for password hashing + session tokens
+  test_db.py          unit tests for the CRUD layer against an in-memory SQLite database
   test_api.py        end-to-end test hitting the real API with a synthetic clip
 ```
+
+Persistence moved from hand-rolled `sqlite3` calls to SQLAlchemy over
+whatever `DATABASE_URL` points at - Postgres in production, SQLite locally
+with zero setup. Schema changes are Alembic migrations (`alembic revision
+--autogenerate`, `alembic upgrade head`), not scripts that ALTER a table in
+place and hope every environment ends up in the same state - see [Deploying
+to Vercel](#deploying-to-vercel--postgres) below for the production setup.
 
 **API surface:**
 - `POST /api/auth/signup` / `POST /api/auth/login` / `POST /api/auth/logout`
@@ -148,6 +159,13 @@ backend/
   trust boundary the old synchronous response already had.
 - `POST /api/detect-face` — a single JPEG frame in, `{detected, regions}`
   out; powers the live dev-mode overlay, stateless, nothing persisted.
+- `POST /api/sessions/{id}/tags` — `name` (form field), attach a label like
+  "resting" or "post-workout" to one of your own sessions. Creates the tag
+  for your account the first time it's used; reusing a name attaches the
+  same tag, not a duplicate. Returns the session's updated tag list.
+- `DELETE /api/sessions/{id}/tags/{name}` — detach a tag from a session.
+- `GET /api/tags` — every tag name you've ever created, for an autocomplete
+  list rather than retyping "post-workout" identically every time.
 - `GET /api/sessions` — the signed-in account's session history. Requires a
   session.
 - `DELETE /api/sessions/{id}` — remove a session (scoped to the
@@ -170,11 +188,56 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Then open `http://localhost:8000` in a browser, allow camera access, and
-record a 15-second clip while sitting still and facing the camera in good,
-even lighting — no account needed. Sign in (optional, top of the page) if
-you want that clip and future ones saved so you can see a trend line build
-up over time instead of just the one-off reading.
+No `DATABASE_URL` needed for local use — it defaults to a SQLite file
+(`backend/vitals.db`), created automatically on first run. Then open
+`http://localhost:8000` in a browser, allow camera access, and record a
+15-second clip while sitting still and facing the camera in good, even
+lighting — no account needed. Sign in (optional, top of the page) if you
+want that clip and future ones saved so you can see a trend line build up
+over time instead of just the one-off reading.
+
+## Deploying to Vercel + Postgres
+
+The app is deploy-ready for Vercel (`vercel.json` at the repo root routes
+`/api/*` to the FastAPI app and everything else to the static `frontend/`
+files), but it needs two things set as environment variables in the Vercel
+project settings first - Vercel's own serverless filesystem doesn't persist
+between invocations, so anything the app used to just write to a local file
+has to come from configuration instead:
+
+1. **`DATABASE_URL`** — a real Postgres connection string. The easiest path
+   is Vercel's own Storage tab (Postgres, built on Neon) or connecting a
+   Neon project directly; either way, Vercel injects the connection string
+   for you. If it arrives as `postgres://...`, that's fine - `database.py`
+   normalizes it to the `postgresql://` form SQLAlchemy 2.x expects.
+2. **`SESSION_SECRET_KEY`** — a random secret for signing session cookies
+   (`python -c "import secrets; print(secrets.token_hex(32))"` locally,
+   paste the output in). Without this, `auth.py` falls back to a local
+   file that won't survive between serverless invocations, silently
+   invalidating sessions.
+
+Then, from your own machine, point `DATABASE_URL` at that same production
+database and run the migrations once (this creates the schema - it's the
+one manual step, since Vercel doesn't run a build-time migration hook on
+its own):
+
+```bash
+cd backend
+DATABASE_URL="postgresql://..." alembic upgrade head
+```
+
+**Worth knowing before you rely on this in production**: this app was built
+as an always-on server (a background job queue backed by a database row,
+a signing secret persisted to disk), and Vercel's serverless model is a
+different shape. Concretely: the background task that processes a video
+after `/api/sessions/upload` responds still runs *inside* the same
+function invocation (Starlette runs it before the invocation is considered
+finished, even though the HTTP response was already sent) - which means a
+slow clip can still hit Vercel's function execution time limit and get
+killed mid-processing, leaving that one job stuck rather than failing
+cleanly. A platform built for long-running processes (Render, Railway,
+Fly.io) is a more natural fit for this app's actual shape; Vercel works,
+with that caveat, because the schema is now normalized Postgres either way.
 
 ## Running the tests
 
