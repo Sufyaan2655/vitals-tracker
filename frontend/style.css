@@ -71,21 +71,17 @@ body {
 
 /* Site nav: fixed to the viewport, moves with scroll on purpose so Home /
    How it works / About / sign-in stay reachable from anywhere on a page
-   that's now long enough to need that. Solid, not a translucent blurred
-   pane over the content beneath it - a frosted-glass nav bar is close to
-   as reliable an AI-generated-page tell as a gradient hero. */
+   that's now long enough to need that. Flush with the page, not a bar
+   sitting visually on top of it: same background as .app, no border, no
+   shadow, no blur - it reads as the top of the same surface everything
+   else sits on, not a separate translucent panel floating above it. */
 .site-nav {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  background: var(--surface);
-  /* A masthead double rule, not a generic app-chrome hairline - a thick
-     ink rule with a thin hairline set a few pixels beneath it is a
-     newspaper/magazine masthead convention, not a UI-kit default. */
-  border-bottom: 3px solid var(--text);
-  box-shadow: 0 4px 0 -1px var(--border);
+  background: var(--bg);
 }
 
 .site-nav-inner {
@@ -124,7 +120,7 @@ body {
   text-decoration: none;
 }
 
-.nav-link:hover { color: var(--accent); }
+.nav-link:hover { color: var(--text); }
 
 .auth-widget {
   position: relative;
@@ -149,7 +145,7 @@ body {
 }
 
 .nav-menu-toggle svg { width: 18px; height: 14px; }
-.nav-menu-toggle:hover { border-color: var(--accent); }
+.nav-menu-toggle:hover { border-color: var(--text-dim); }
 
 .nav-menu-panel {
   position: absolute;
@@ -226,12 +222,16 @@ html { scroll-behavior: smooth; }
   vertical-align: bottom;
 }
 
+/* Plain ink, underlined - not the accent color. The accent is reserved for
+   the one primary action per screen and for actual signal data; a "sign
+   in" prompt repeated in four different places on the page would turn
+   that accent into wallpaper if it inherited the color too. */
 .link-btn {
   appearance: none;
   background: none;
   border: none;
   padding: 0;
-  color: var(--accent);
+  color: var(--text);
   font-family: var(--sans);
   font-size: 13px;
   font-weight: 600;
@@ -240,7 +240,7 @@ html { scroll-behavior: smooth; }
   cursor: pointer;
 }
 
-.link-btn:hover { color: var(--danger); }
+.link-btn:hover { color: var(--text-dim); }
 
 .card {
   background: var(--surface);
@@ -479,7 +479,7 @@ html { scroll-behavior: smooth; }
   font-weight: 600;
   font-size: 30px;
   font-style: italic;
-  color: var(--accent);
+  color: var(--text-dim);
   font-variant-numeric: tabular-nums;
   line-height: 1;
 }
@@ -508,11 +508,14 @@ html { scroll-behavior: smooth; }
   width: 20px;
   height: 20px;
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--text-dim);
 }
 
-.feature-icon-br { color: var(--accent-2); }
-.feature-icon-confidence { color: var(--success); }
+/* feature-icon-br / feature-icon-confidence intentionally not overridden -
+   all four how-it-works icons share the same neutral ink now rather than
+   scattering small color accents across a list; color is reserved for
+   the one primary button and for actual signal data elsewhere on the
+   page. */
 
 .example-section {
   display: grid;
@@ -603,18 +606,18 @@ html { scroll-behavior: smooth; }
   font-weight: 600;
   line-height: 0.8;
   padding: 6px 6px 0 0;
-  color: var(--accent);
+  color: var(--text);
 }
 
 .about-section strong { color: var(--text); }
 
 .about-section a {
-  color: var(--accent);
+  color: var(--text);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.about-section a:hover { color: var(--danger); }
+.about-section a:hover { color: var(--text-dim); }
 
 .site-footer {
   margin-top: 40px;
@@ -827,7 +830,7 @@ video:focus-visible {
   transition: border-color 0.15s ease, background 0.15s ease, transform 0.1s ease;
 }
 
-.btn:hover:not(:disabled) { border-color: var(--accent); background: var(--surface); }
+.btn:hover:not(:disabled) { border-color: var(--text-dim); background: var(--surface); }
 .btn:active:not(:disabled) { transform: translateY(1px); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
