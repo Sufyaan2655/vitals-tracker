@@ -44,6 +44,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import db
 from database import SessionLocal, engine, get_db
 from models import Base
