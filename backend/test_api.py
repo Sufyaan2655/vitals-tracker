@@ -9,6 +9,7 @@ username - every session-scoped test signs up a throwaway account first and
 reuses the TestClient's cookie jar, exactly like a real browser would.
 """
 
+import sqlite3
 import time
 
 import cv2
@@ -208,6 +209,30 @@ def test_job_endpoint_requires_owning_account_for_signed_in_jobs(client, tmp_pat
     # Switch accounts - a fresh signup overwrites the client's session cookie.
     signup(client, "someone_else")
     assert client.get(f"/api/jobs/{job_id}").status_code == 404
+
+
+def test_job_lands_on_failed_not_stuck_processing_when_saving_history_errors(client, tmp_path, monkeypatch):
+    """Regression test: saving to history (insert_session, signed-in only)
+    used to run outside the job's try/except. If it raised for any reason,
+    the job never got marked done or failed and sat at "processing"
+    forever - the frontend would poll until its own timeout and report a
+    generic "taking longer than expected" with no hint that this signed-in-
+    only code path was the real cause. A successfully processed clip must
+    always resolve to done or failed, never hang mid-pipeline."""
+    import main as main_module
+
+    def _boom(*args, **kwargs):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(main_module.db, "insert_session", _boom)
+
+    signup(client, "history_save_fails_user")
+    clip_path = str(tmp_path / "clip.mp4")
+    _write_synthetic_clip(clip_path, bpm=75)
+
+    job = _upload_and_wait(client, clip_path)
+    assert job["status"] == "failed"
+    assert "database is locked" in job["error"]
 
 
 def test_detect_face_endpoint_finds_face_in_synthetic_frame(client):

@@ -176,27 +176,37 @@ def _run_processing_job(job_id: int, tmp_path: str, dev_mode: bool, user_id: int
     # compute-heavy part of this app, and used to block the whole upload
     # request for its duration. The job row is how the frontend finds out
     # what happened instead of waiting on the response.
+    #
+    # Everything from here to the final update_job() is inside one try -
+    # this used to end at process_video(), which left the save-to-history
+    # step unprotected: if insert_session() ever raised (a locked DB, any
+    # error at all), the job never got marked done *or* failed and sat at
+    # "processing" forever, and the frontend's poll loop would wait out its
+    # full timeout and report a generic "taking longer than expected" with
+    # no hint that a signed-in-only code path was the actual cause.
     db.update_job(job_id, status="processing")
     try:
         try:
             result = process_video(tmp_path, include_debug=dev_mode)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
+
+        # Signed in -> save to that account's history. Anonymous -> just
+        # hand back the reading for this one clip; nothing is written to
+        # the DB, so there's nothing to clean up or associate with an
+        # account later.
+        if user_id is not None:
+            result["id"] = db.insert_session(user_id, result)
+        else:
+            result["id"] = None
+        result["saved"] = user_id is not None
     except VitalsError as e:
         db.update_job(job_id, status="failed", error=str(e))
         return
-    except Exception as e:  # noqa: BLE001 - surface unexpected processing errors to the client
+    except Exception as e:  # noqa: BLE001 - surface unexpected processing/storage errors to the client
         db.update_job(job_id, status="failed", error=f"Processing failed: {e}")
         return
 
-    # Signed in -> save to that account's history. Anonymous -> just hand
-    # back the reading for this one clip; nothing is written to the DB, so
-    # there's nothing to clean up or associate with an account later.
-    if user_id is not None:
-        result["id"] = db.insert_session(user_id, result)
-    else:
-        result["id"] = None
-    result["saved"] = user_id is not None
     db.update_job(job_id, status="done", result=result)
 
 

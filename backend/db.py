@@ -32,56 +32,58 @@ def get_connection() -> sqlite3.Connection:
 
 def init_db() -> None:
     conn = get_connection()
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            password_hash TEXT NOT NULL,
-            created_at REAL NOT NULL
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL UNIQUE,
+                password_hash TEXT NOT NULL,
+                created_at REAL NOT NULL
+            )
+            """
         )
-        """
-    )
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS sessions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT,
-            user_id INTEGER,
-            created_at REAL NOT NULL,
-            heart_rate_bpm REAL NOT NULL,
-            heart_rate_confidence REAL NOT NULL,
-            breathing_rate_bpm REAL NOT NULL,
-            breathing_rate_confidence REAL NOT NULL,
-            fps REAL,
-            num_frames INTEGER,
-            face_detection_rate REAL
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT,
+                user_id INTEGER,
+                created_at REAL NOT NULL,
+                heart_rate_bpm REAL NOT NULL,
+                heart_rate_confidence REAL NOT NULL,
+                breathing_rate_bpm REAL NOT NULL,
+                breathing_rate_confidence REAL NOT NULL,
+                fps REAL,
+                num_frames INTEGER,
+                face_detection_rate REAL
+            )
+            """
         )
-        """
-    )
-    # Migration for a pre-accounts database: the old `sessions` table has no
-    # `user_id` column. Add it without touching existing rows - those were
-    # written under typed, unauthenticated names before real accounts
-    # existed, so there is no account to migrate them to; they simply stop
-    # being reachable through the app rather than being deleted.
-    existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
-    if "user_id" not in existing_cols:
-        conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS jobs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at REAL NOT NULL,
-            updated_at REAL NOT NULL,
-            result_json TEXT,
-            error TEXT
+        # Migration for a pre-accounts database: the old `sessions` table has
+        # no `user_id` column. Add it without touching existing rows - those
+        # were written under typed, unauthenticated names before real
+        # accounts existed, so there is no account to migrate them to; they
+        # simply stop being reachable through the app rather than deleted.
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
+        if "user_id" not in existing_cols:
+            conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS jobs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL,
+                result_json TEXT,
+                error TEXT
+            )
+            """
         )
-        """
-    )
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def create_user(username: str, password_hash: str) -> int:
@@ -101,65 +103,73 @@ def create_user(username: str, password_hash: str) -> int:
 
 def get_user_by_username(username: str) -> dict | None:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def get_user(user_id: int) -> dict | None:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    try:
+        row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
 
 
 def insert_session(user_id: int, result: dict) -> int:
     conn = get_connection()
-    cur = conn.execute(
-        """
-        INSERT INTO sessions (
-            user_id, created_at, heart_rate_bpm, heart_rate_confidence,
-            breathing_rate_bpm, breathing_rate_confidence, fps, num_frames,
-            face_detection_rate
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            user_id,
-            time.time(),
-            result["heart_rate_bpm"],
-            result["heart_rate_confidence"],
-            result["breathing_rate_bpm"],
-            result["breathing_rate_confidence"],
-            result.get("fps"),
-            result.get("num_frames"),
-            result.get("face_detection_rate"),
-        ),
-    )
-    conn.commit()
-    session_id = cur.lastrowid
-    conn.close()
-    return session_id
+    try:
+        cur = conn.execute(
+            """
+            INSERT INTO sessions (
+                user_id, created_at, heart_rate_bpm, heart_rate_confidence,
+                breathing_rate_bpm, breathing_rate_confidence, fps, num_frames,
+                face_detection_rate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                time.time(),
+                result["heart_rate_bpm"],
+                result["heart_rate_confidence"],
+                result["breathing_rate_bpm"],
+                result["breathing_rate_confidence"],
+                result.get("fps"),
+                result.get("num_frames"),
+                result.get("face_detection_rate"),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
 
 
 def delete_session(session_id: int, user_id: int) -> bool:
     conn = get_connection()
-    cur = conn.execute(
-        "DELETE FROM sessions WHERE id = ? AND user_id = ?",
-        (session_id, user_id),
-    )
-    conn.commit()
-    deleted = cur.rowcount > 0
-    conn.close()
-    return deleted
+    try:
+        cur = conn.execute(
+            "DELETE FROM sessions WHERE id = ? AND user_id = ?",
+            (session_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 def get_sessions(user_id: int) -> list[dict]:
     conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at ASC",
-        (user_id,),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM sessions WHERE user_id = ? ORDER BY created_at ASC",
+            (user_id,),
+        ).fetchall()
+    finally:
+        conn.close()
     sessions = [dict(row) for row in rows]
     # Plausibility isn't a stored column - it's derived from bpm at read time
     # so historical sessions (recorded before this check existed, or scored
@@ -182,21 +192,24 @@ def get_sessions(user_id: int) -> list[dict]:
 
 def create_job(user_id: int | None) -> int:
     conn = get_connection()
-    now = time.time()
-    cur = conn.execute(
-        "INSERT INTO jobs (user_id, status, created_at, updated_at) VALUES (?, 'pending', ?, ?)",
-        (user_id, now, now),
-    )
-    conn.commit()
-    job_id = cur.lastrowid
-    conn.close()
-    return job_id
+    try:
+        now = time.time()
+        cur = conn.execute(
+            "INSERT INTO jobs (user_id, status, created_at, updated_at) VALUES (?, 'pending', ?, ?)",
+            (user_id, now, now),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
 
 
 def get_job(job_id: int) -> dict | None:
     conn = get_connection()
-    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
-    conn.close()
+    try:
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    finally:
+        conn.close()
     if row is None:
         return None
     job = dict(row)
@@ -212,9 +225,11 @@ def update_job(
     error: str | None = None,
 ) -> None:
     conn = get_connection()
-    conn.execute(
-        "UPDATE jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?",
-        (status, json.dumps(result) if result is not None else None, error, time.time(), job_id),
-    )
-    conn.commit()
-    conn.close()
+    try:
+        conn.execute(
+            "UPDATE jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?",
+            (status, json.dumps(result) if result is not None else None, error, time.time(), job_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
