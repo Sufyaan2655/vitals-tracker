@@ -751,6 +751,17 @@ video:focus-visible {
   flex-shrink: 0;
 }
 
+/* Mirrored like a real mirror, not like the recording - people expect to
+   see themselves the way a mirror shows them (raise your right hand, see
+   it on the side that feels right), even though the underlying video/ROI
+   math is untouched. The overlay canvas gets the same flip so tracking
+   boxes stay aligned with the mirrored face instead of appearing on the
+   wrong side. */
+.preview-wrap video,
+.preview-wrap canvas {
+  transform: scaleX(-1);
+}
+
 .preview-wrap video {
   display: block;
   width: 100%;
@@ -1081,6 +1092,14 @@ video:focus-visible {
   border-radius: 12px;
   overflow: hidden;
   border: 1px solid var(--border);
+}
+
+/* Same mirrored presentation as the live preview (see .preview-wrap) -
+   the replay should match what was actually seen while recording, not
+   flip back to unmirrored and feel reversed by comparison. */
+.overlay-wrap video,
+.overlay-wrap canvas {
+  transform: scaleX(-1);
 }
 
 .overlay-wrap video {
