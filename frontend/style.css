@@ -136,13 +136,58 @@ body {
   flex-shrink: 0;
 }
 
+/* Hidden above 700px (the full nav-links row already covers it); below
+   700px it replaces that row rather than just removing it, so Home/How it
+   works/About stay reachable from a tap instead of only by scrolling. */
+.nav-menu-toggle {
+  display: none;
+  appearance: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nav-menu-toggle svg { width: 18px; height: 14px; }
+.nav-menu-toggle:hover { border-color: var(--accent); }
+
+.nav-menu-panel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 16px 32px -24px rgba(46, 32, 22, 0.35);
+  padding: 8px 20px;
+}
+
+.nav-menu-panel .nav-link {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.nav-menu-panel .nav-link:last-child { border-bottom: none; }
+
 /* Below ~700px there isn't room for brand + three nav links + the auth
-   control without wrapping or truncation - drop the link row rather than
-   shrink it into illegibility; Home/How it works/About are all one scroll
-   away anyway on a single-page site. */
+   control without wrapping or truncation - the menu button (above) takes
+   the link row's place instead. */
 @media (max-width: 700px) {
   .nav-links { display: none; }
+  .nav-menu-toggle { display: block; }
   .site-nav-inner { gap: 12px; }
+}
+
+@media (min-width: 701px) {
+  .nav-menu-panel { display: none !important; }
 }
 
 @media (max-width: 480px) {
@@ -256,27 +301,31 @@ html { scroll-behavior: smooth; }
   max-width: 62ch;
 }
 
+/* Left-set rather than centered - a centered headline over two centered
+   buttons is the single most recognizable generic-SaaS hero shape, and
+   this product's identity is closer to a journal entry than a launch
+   announcement. */
 .hero {
   padding: 32px 0 48px;
-  text-align: center;
+  text-align: left;
 }
 
 .hero-title {
-  margin: 0 auto 18px;
-  max-width: 18ch;
+  margin: 0 0 18px;
+  max-width: 15ch;
   font-family: var(--sans);
-  font-size: 44px;
+  font-size: 40px;
   font-weight: 700;
   letter-spacing: -0.02em;
   line-height: 1.08;
 }
 
 @media (min-width: 640px) {
-  .hero-title { font-size: 56px; }
+  .hero-title { font-size: 54px; }
 }
 
 .hero-subtitle {
-  margin: 0 auto 28px;
+  margin: 0 0 28px;
   max-width: 56ch;
   font-family: var(--serif);
   font-size: 17px;
@@ -286,7 +335,7 @@ html { scroll-behavior: smooth; }
 
 .hero-cta {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 12px;
   flex-wrap: wrap;
 }
@@ -315,30 +364,65 @@ html { scroll-behavior: smooth; }
   margin-bottom: 8px;
 }
 
-.feature-grid {
-  margin-top: 32px;
+/* This section describes an actual pipeline (detect -> extract two signals
+   in parallel -> score confidence), not four unrelated marketing features -
+   a numbered vertical sequence with a connecting line is honest to that
+   shape, reads as authored for this product rather than a generic feature
+   grid, and can't produce an orphaned card at any width since it's a
+   single column by construction. */
+.step-sequence {
+  position: relative;
+  margin-top: 36px;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 28px;
+  grid-template-columns: 40px 1fr;
+  column-gap: 20px;
+  row-gap: 32px;
 }
 
-/* Icon sits inline with the heading rather than stacked above it in its own
-   tile - the stacked icon-square is too close to a generic template, and an
-   icon in flow reads more like editorial illustration than a UI component. */
-.feature-item {
+.step-item { display: contents; }
+
+.step-connector {
+  grid-column: 1;
+  grid-row: 1 / -1;
+  width: 1px;
+  background: var(--border);
+  justify-self: center;
+  margin: 20px 0;
+}
+
+.step-number {
+  grid-column: 1;
+  grid-row: auto;
+  z-index: 1;
+  align-self: start;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--surface);
   display: flex;
-  gap: 14px;
-  align-items: flex-start;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
 }
 
-.feature-item h3 {
-  margin: 0 0 8px;
+.step-body { grid-column: 2; }
+
+.step-body h3 {
+  margin: 6px 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-family: var(--sans);
   font-size: 17px;
   font-weight: 600;
 }
 
-.feature-item p {
+.step-body p {
   margin: 0;
   font-family: var(--serif);
   font-size: 15px;
@@ -347,10 +431,9 @@ html { scroll-behavior: smooth; }
 }
 
 .feature-icon {
-  width: 26px;
-  height: 26px;
+  width: 20px;
+  height: 20px;
   flex-shrink: 0;
-  margin-top: 3px;
   color: var(--accent);
 }
 
@@ -446,6 +529,21 @@ html { scroll-behavior: smooth; }
   font-size: 13px;
   color: var(--text-dim);
   text-align: center;
+}
+
+/* A scrim behind the open auth popover - without it the panel visibly
+   overlapped live hero/feature text with nothing to separate the two,
+   reading as pasted on top of the page rather than a deliberate layer
+   above it. Sits below .site-nav's z-index (100) so the nav bar and the
+   panel nested inside it stay on top; clicking it closes the panel via
+   the existing document-level outside-click handler, since the backdrop
+   itself sits outside .auth-widget. */
+.auth-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background: rgba(46, 32, 22, 0.28);
+  backdrop-filter: blur(2px);
 }
 
 /* Auth widget: a compact popover anchored under the header, not a full-page
@@ -596,6 +694,29 @@ video:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* The "camera never leaves your device" reassurance used to live only in
+   marketing copy a full scroll above this card - restated right at the
+   point of highest anxiety (about to grant camera access), not just
+   upstream of it. */
+.camera-trust-note {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-2);
+}
+
+.camera-trust-note::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-2);
+  margin-right: 7px;
+  vertical-align: middle;
 }
 
 .btn {

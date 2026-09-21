@@ -1,7 +1,24 @@
 const API_BASE = ""; // same-origin: FastAPI serves this file itself
 
+// A server error that never reaches a route handler (a bad cookie during
+// auth, a dropped connection, a proxy in front of it) can come back as
+// plain text instead of JSON - res.json() then throws its own cryptic
+// "Unexpected token" parse error instead of the actual problem. Read the
+// body as text first and only parse it, so a non-JSON response still
+// surfaces something readable.
+async function safeJson(res) {
+  const text = await res.text();
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(text.slice(0, 200) || `Server error (${res.status})`);
+  }
+}
+
 const authToggleBtn = document.getElementById("authToggleBtn");
 const authPanel = document.getElementById("authPanel");
+const authBackdrop = document.getElementById("authBackdrop");
 const accountBar = document.getElementById("accountBar");
 const accountName = document.getElementById("accountName");
 const signOutBtn = document.getElementById("signOutBtn");
@@ -86,8 +103,40 @@ let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
 let cameraOn = false;
+let isRecording = false;
 let chart = null;
 let confidenceChart = null;
+
+// Privacy: a camera left on with nobody actively using the page is worse
+// than one that switches itself off - auto-stop after a stretch of no
+// interaction rather than trusting the person to remember to hit "Disable
+// camera". Doesn't apply mid-recording (obviously) or while background
+// monitoring is running, since sitting on between check-ins is that
+// feature's whole point, not an oversight.
+const CAMERA_IDLE_TIMEOUT_MS = 25_000;
+let cameraIdleTimer = null;
+
+function resetCameraIdleTimer() {
+  if (cameraIdleTimer) {
+    clearTimeout(cameraIdleTimer);
+    cameraIdleTimer = null;
+  }
+  if (!cameraOn || monitorToggle.checked) return;
+  cameraIdleTimer = setTimeout(() => {
+    if (isRecording) {
+      resetCameraIdleTimer(); // don't kill the stream mid-clip - just wait it out
+      return;
+    }
+    if (cameraOn && !monitorToggle.checked) {
+      stopCamera();
+      setStatus("Camera turned off automatically after 25s of inactivity.");
+    }
+  }, CAMERA_IDLE_TIMEOUT_MS);
+}
+
+["mousemove", "mousedown", "keydown", "touchstart", "scroll"].forEach((evt) => {
+  document.addEventListener(evt, resetCameraIdleTimer, { passive: true });
+});
 
 let debugData = null;
 let debugFps = 30;
@@ -150,11 +199,13 @@ authTabs.forEach((tab) => {
 
 function openAuthPanel() {
   authPanel.classList.remove("hidden");
+  authBackdrop.classList.remove("hidden");
   authUsername.focus();
 }
 
 function closeAuthPanel() {
   authPanel.classList.add("hidden");
+  authBackdrop.classList.add("hidden");
 }
 
 authToggleBtn.addEventListener("click", () => {
@@ -173,6 +224,34 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !authPanel.classList.contains("hidden")) closeAuthPanel();
 });
 
+// Below 700px the nav bar drops Home/How it works/About to leave room for
+// the auth widget - this menu is how they stay reachable rather than only
+// discoverable by scrolling.
+const navMenuToggle = document.getElementById("navMenuToggle");
+const navMenuPanel = document.getElementById("navMenuPanel");
+
+function closeNavMenu() {
+  navMenuPanel.classList.add("hidden");
+  navMenuToggle.setAttribute("aria-expanded", "false");
+}
+
+navMenuToggle.addEventListener("click", () => {
+  const opening = navMenuPanel.classList.contains("hidden");
+  navMenuPanel.classList.toggle("hidden", !opening);
+  navMenuToggle.setAttribute("aria-expanded", String(opening));
+});
+navMenuPanel.querySelectorAll(".nav-link").forEach((link) => {
+  link.addEventListener("click", closeNavMenu);
+});
+document.addEventListener("click", (e) => {
+  if (!navMenuPanel.classList.contains("hidden") && !e.target.closest("#navMenuToggle, #navMenuPanel")) {
+    closeNavMenu();
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !navMenuPanel.classList.contains("hidden")) closeNavMenu();
+});
+
 authForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const username = authUsername.value.trim();
@@ -189,7 +268,7 @@ authForm.addEventListener("submit", async (e) => {
     fd.append("username", username);
     fd.append("password", password);
     const res = await fetch(`${API_BASE}${endpoint}`, { method: "POST", body: fd });
-    const data = await res.json();
+    const data = await safeJson(res);
     if (!res.ok) throw new Error(data.detail || "Something went wrong");
     closeAuthPanel();
     applySignedInState(data.username);
@@ -242,7 +321,7 @@ async function checkAuth() {
       applySignedOutState();
       return;
     }
-    const data = await res.json();
+    const data = await safeJson(res);
     applySignedInState(data.username);
   } catch (err) {
     applySignedOutState();
@@ -288,6 +367,7 @@ async function enableCamera() {
     startCameraBtn.textContent = "Disable camera";
     setStatus("Camera ready. Sit still, face well-lit, then record a clip.");
     if (devModeToggle.checked) startLiveTracking();
+    resetCameraIdleTimer();
     return true;
   } catch (err) {
     setStatus(
@@ -310,6 +390,7 @@ function stopCamera() {
   setStatus("Camera off.");
   stopLiveTracking();
   if (monitorToggle.checked) stopBackgroundMonitor();
+  resetCameraIdleTimer(); // clears the pending timeout now that the camera is off
 }
 
 recordBtn.addEventListener("click", () => startRecording({ silent: false }));
@@ -325,6 +406,7 @@ function startRecording({ silent }) {
       return;
     }
     recordedChunks = [];
+    isRecording = true;
 
     const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
       ? "video/webm;codecs=vp8"
@@ -376,7 +458,7 @@ async function handleRecordingComplete({ silent = false } = {}) {
       method: "POST",
       body: formData,
     });
-    const data = await res.json();
+    const data = await safeJson(res);
 
     if (!res.ok) {
       throw new Error(data.detail || "Processing failed");
@@ -395,6 +477,8 @@ async function handleRecordingComplete({ silent = false } = {}) {
     if (!silent) setStatus(`Error: ${err.message}`, true);
     return null;
   } finally {
+    isRecording = false;
+    resetCameraIdleTimer(); // clip just finished - start the idle clock fresh
     if (!silent) {
       recordBtn.disabled = false;
       startCameraBtn.disabled = false;
@@ -497,7 +581,7 @@ async function captureAndDetectLive() {
         const fd = new FormData();
         fd.append("frame", blob, "frame.jpg");
         const res = await fetch(`${API_BASE}/api/detect-face`, { method: "POST", body: fd });
-        const data = await res.json();
+        const data = await safeJson(res);
         drawLiveOverlay(data, w, h);
       } catch (err) {
         /* transient network hiccup - just skip this tick */
@@ -765,7 +849,7 @@ async function refreshHistory() {
   try {
     const res = await authedFetch(`${API_BASE}/api/sessions`);
     if (!res.ok) return;
-    const sessions = await res.json();
+    const sessions = await safeJson(res);
     renderChart(sessions);
     renderConfidenceChart(sessions);
     renderStats(sessions);
@@ -961,7 +1045,7 @@ historyTableBody.addEventListener("click", async (e) => {
 exportCsvBtn.addEventListener("click", async () => {
   try {
     const res = await authedFetch(`${API_BASE}/api/sessions`);
-    const sessions = await res.json();
+    const sessions = await safeJson(res);
     if (!sessions.length) return;
 
     const columns = [
@@ -1079,6 +1163,7 @@ function stopBackgroundMonitor({ keepToggleOn = false } = {}) {
     monitorStatus.textContent = "";
     monitorStatus.classList.remove("error");
   }
+  resetCameraIdleTimer(); // the idle-privacy timeout was suppressed while monitoring ran
 }
 
 async function runMonitorCheck() {

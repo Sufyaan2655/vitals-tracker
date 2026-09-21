@@ -16,8 +16,8 @@
   <nav id="siteNav" class="site-nav">
     <div class="site-nav-inner">
       <a href="#top" class="nav-brand">
-        <svg class="brand-mark" viewBox="0 0 64 24" aria-hidden="true">
-          <polyline points="0,12 14,12 19,3 25,21 30,8 34,12 64,12" pathLength="100" />
+        <svg class="brand-mark" viewBox="0 0 32 24" aria-hidden="true">
+          <polyline points="0,12 6,12 11,3 17,21 22,8 26,12 32,12" pathLength="100" />
         </svg>
         <span>Vitals Tracker</span>
       </a>
@@ -27,6 +27,10 @@
         <a href="#how-it-works" class="nav-link">How it works</a>
         <a href="#about" class="nav-link">About</a>
       </div>
+
+      <button id="navMenuToggle" class="nav-menu-toggle" aria-label="Menu" aria-expanded="false" aria-controls="navMenuPanel">
+        <svg viewBox="0 0 20 16" aria-hidden="true"><path d="M0 1h20M0 8h20M0 15h20" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+      </button>
 
       <div class="auth-widget">
         <button id="authToggleBtn" class="link-btn">Sign in to save history</button>
@@ -56,7 +60,14 @@
         </div>
       </div>
     </div>
+
+    <div id="navMenuPanel" class="nav-menu-panel hidden">
+      <a href="#top" class="nav-link">Home</a>
+      <a href="#how-it-works" class="nav-link">How it works</a>
+      <a href="#about" class="nav-link">About</a>
+    </div>
   </nav>
+  <div id="authBackdrop" class="auth-backdrop hidden"></div>
 
   <div class="app">
     <header id="top" class="hero">
@@ -80,32 +91,33 @@
         thrown away immediately after. Everything below is real: the same pipeline that
         produces your reading also produces the numbers underneath it.
       </p>
-      <div class="feature-grid">
-        <div class="feature-item">
-          <svg class="feature-icon feature-icon-face" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 15c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-          <div>
-            <h3>Face &amp; forehead tracking</h3>
+      <div class="step-sequence">
+        <span class="step-connector" aria-hidden="true"></span>
+        <div class="step-item">
+          <span class="step-number">01</span>
+          <div class="step-body">
+            <h3><svg class="feature-icon feature-icon-face" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/><path d="M8 15c1 1.2 2.4 1.8 4 1.8s3-.6 4-1.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>Face &amp; forehead tracking</h3>
             <p>An OpenCV detector finds your face every frame and tracks a forehead region - the most motion-stable, least occluded patch of skin.</p>
           </div>
         </div>
-        <div class="feature-item">
-          <svg class="feature-icon feature-icon-hr" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l2-6 4 12 3-9 2 3h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div>
-            <h3>Color reveals the pulse</h3>
+        <div class="step-item">
+          <span class="step-number">02</span>
+          <div class="step-body">
+            <h3><svg class="feature-icon feature-icon-hr" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12h4l2-6 4 12 3-9 2 3h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Color reveals the pulse</h3>
             <p>Every heartbeat shifts how much green light your skin reflects, by an amount too small to see. Averaging that region per frame builds a signal a Butterworth filter and FFT can turn into a heart rate.</p>
           </div>
         </div>
-        <div class="feature-item">
-          <svg class="feature-icon feature-icon-br" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c2-6 4-9 9-9s7 3 9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 15v4M21 15v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          <div>
-            <h3>Motion reveals breathing</h3>
-            <p>The region below your face is watched with optical flow instead of color - the small rise and fall of your chest and shoulders, band-passed to the breathing range.</p>
+        <div class="step-item">
+          <span class="step-number">03</span>
+          <div class="step-body">
+            <h3><svg class="feature-icon feature-icon-br" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 15c2-6 4-9 9-9s7 3 9 9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 15v4M21 15v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Motion reveals breathing</h3>
+            <p>The region below your face is watched with optical flow instead of color - the small rise and fall of your chest and shoulders, band-passed to the breathing range, running the same instant the color signal does.</p>
           </div>
         </div>
-        <div class="feature-item">
-          <svg class="feature-icon feature-icon-confidence" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <div>
-            <h3>Confidence, shown honestly</h3>
+        <div class="step-item">
+          <span class="step-number">04</span>
+          <div class="step-body">
+            <h3><svg class="feature-icon feature-icon-confidence" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 12l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Confidence, shown honestly</h3>
             <p>A reading reports how concentrated its signal's energy actually was, plus a separate check for values outside a plausible resting range - so a confidently wrong number doesn't ship silently.</p>
           </div>
         </div>
@@ -149,6 +161,7 @@
             <div id="liveTrackingStatus" class="live-tracking-status hidden"></div>
           </div>
           <div class="camera-controls">
+            <p class="camera-trust-note">Processed on this device only - nothing is saved unless you sign in.</p>
             <button id="startCamera" class="btn">Enable camera</button>
             <button id="recordBtn" class="btn btn-primary" disabled>Record 15s clip</button>
             <label class="toggle">
@@ -283,11 +296,10 @@
     <section id="about" class="about-section">
       <h2 class="section-title">What this actually is - and isn't</h2>
       <p>
-        Vitals Tracker is a personal wellness demo built on remote photoplethysmography (rPPG):
-        a heartbeat causes tiny, invisible-to-the-eye periodic changes in facial skin color as
-        blood volume shifts under the skin, the same principle a clip-on pulse oximeter uses,
-        here picked up by an ordinary webcam instead. Breathing is estimated the same way, but
-        from chest/shoulder motion rather than color.
+        Vitals Tracker is a personal wellness demo, not a product - see
+        <a href="#how-it-works">how it works</a> above for the actual mechanism (rPPG, the
+        same principle a clip-on pulse oximeter uses). What's worth being upfront about is
+        what it doesn't do.
       </p>
       <p>
         <strong>It is not a medical device.</strong> Lighting, movement, and skin tone all affect
