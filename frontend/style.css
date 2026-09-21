@@ -1,23 +1,20 @@
 :root {
-  /* A cool slate-grey, not the warm cream (near #F4F1EA) that's become its
-     own AI-default tell, especially paired with a terracotta accent the
-     way this palette used to be. Even a desaturated warm neutral still
-     reads as "cream" - the hue needs to actually cross into cool territory
-     (blue-grey rather than yellow-grey) to escape that, so the warm ink
-     text below sits against a genuinely cool ground instead of a
-     monochrome-warm field. */
-  --bg: #e2e6e6;
-  --surface: #fafbfb;
-  --surface-2: #d2d7d7;
-  --border: #bfc4c4;
-  --text: #211d17;
-  --text-dim: #5a554a;
-  --accent: #8b2332;       /* oxblood - the color of the thing this app measures (blood volume pulse); heart rate + primary actions */
-  --accent-2: #1f6b68;     /* petrol teal - breathing, a distinct cool hue rather than an earthy wellness green */
+  /* A clinical-chart palette: white and a faint blush paper, coral-red and
+     a warm orange doing the accent work, dark slate-blue ink instead of
+     warm brown - the family real vital-sign monitors and lab charts
+     actually use, rather than an invented "journal" or "recorder" mood. */
+  --bg: #fdf2f2;
+  --surface: #ffffff;
+  --surface-2: #f6e0e0;
+  --border: #e6c9cc;
+  --text: #2c3b42;
+  --text-dim: #5c6f78;
+  --accent: #c73529;       /* coral-red, darkened slightly from the reference for AA contrast with white button text - the color of the thing this app measures (blood volume pulse); heart rate + primary actions */
+  --accent-2: #1f6b68;     /* petrol teal - breathing, a distinct cool hue rather than a second warm tone */
   --success: #1f6b68;      /* high confidence */
-  --warning: #a66a1e;
-  --danger: #b23a2b;
-  --ink-on-accent: #fafbfb;
+  --warning: #d9713f;      /* warm orange - medium-confidence and plausibility warnings */
+  --danger: #b71c1c;       /* deeper, more alarmed red than the coral accent - errors read as distinct from "this is your heart rate" */
+  --ink-on-accent: #ffffff;
   --sans: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
 }
@@ -157,7 +154,7 @@ body {
   flex-direction: column;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
+  box-shadow: 0 16px 32px -24px rgba(44, 59, 66, 0.35);
   padding: 8px 20px;
 }
 
@@ -242,13 +239,17 @@ html { scroll-behavior: smooth; }
 
 .link-btn:hover { color: var(--text-dim); }
 
+/* Flat, not floating - a soft ambient shadow under every card, all at the
+   same radius, is the single most recognizable "SaaS card kit" tell there
+   is. The border alone carries the edge; depth is reserved for things
+   that actually open on top of the page (the auth popover, the nav-menu
+   panel), not every static container. */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 6px;
   padding: 24px 24px 26px;
   margin-bottom: 20px;
-  box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
 }
 
 .card h2 {
@@ -366,7 +367,7 @@ html { scroll-behavior: smooth; }
   border: 1px solid var(--border);
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
+  box-shadow: 0 16px 32px -24px rgba(44, 59, 66, 0.35);
 }
 
 /* A figure caption, not a decorative eyebrow - it sits below the thing it
@@ -640,7 +641,7 @@ html { scroll-behavior: smooth; }
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(33, 29, 23, 0.4);
+  background: rgba(44, 59, 66, 0.4);
 }
 
 /* Auth widget: a compact popover anchored under the header, not a full-page
@@ -656,7 +657,7 @@ html { scroll-behavior: smooth; }
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 18px;
-  box-shadow: 0 20px 40px -20px rgba(33, 29, 23, 0.45);
+  box-shadow: 0 20px 40px -20px rgba(44, 59, 66, 0.45);
 }
 
 .auth-panel .field { margin-bottom: 12px; }
@@ -690,7 +691,7 @@ html { scroll-behavior: smooth; }
 .auth-tab.active {
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 2px 6px -2px rgba(33, 29, 23, 0.3);
+  box-shadow: 0 2px 6px -2px rgba(44, 59, 66, 0.3);
 }
 
 .field {
@@ -775,14 +776,14 @@ video:focus-visible {
   font-weight: 600;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(250, 251, 251, 0.92);
+  background: rgba(255, 255, 255, 0.92);
   color: var(--success);
   border: 1px solid rgba(31, 107, 104, 0.4);
 }
 
 .live-tracking-status.warning {
   color: var(--danger);
-  border-color: rgba(178, 58, 43, 0.4);
+  border-color: rgba(183, 28, 28, 0.4);
 }
 
 .camera-controls {
@@ -838,7 +839,7 @@ video:focus-visible {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--ink-on-accent);
-  box-shadow: 0 10px 24px -12px rgba(139, 35, 50, 0.55);
+  box-shadow: 0 10px 24px -12px rgba(199, 53, 41, 0.55);
 }
 
 .btn-primary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); filter: brightness(1.08); }
@@ -870,11 +871,15 @@ video:focus-visible {
 
 .status.error { color: var(--danger); }
 
+/* A ruled note, not a filled grey "card inside a card" - a box-within-a-box
+   with its own background and radius is exactly the pattern that makes
+   nested containers read as a component-kit demo. Top and bottom rules
+   only, no fill, no corners: reads as an annotation on the page, not a
+   second surface stacked on the first. */
 .save-hint {
-  padding: 10px 12px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 9px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .save-hint .link-btn,
@@ -886,10 +891,9 @@ video:focus-visible {
 
 #historySignedOut,
 #monitorSignedOut {
-  padding: 14px 16px;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   line-height: 1.6;
 }
 
@@ -1024,7 +1028,7 @@ video:focus-visible {
 }
 
 .toggle input:checked + .toggle-track {
-  background: rgba(139, 35, 50, 0.18);
+  background: rgba(199, 53, 41, 0.18);
   border-color: var(--accent);
 }
 
@@ -1210,7 +1214,7 @@ video:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.history-table tr:hover td { background: rgba(139, 35, 50, 0.06); }
+.history-table tr:hover td { background: rgba(199, 53, 41, 0.06); }
 
 .row-delete {
   position: relative;
@@ -1236,4 +1240,4 @@ video:focus-visible {
   inset: -10px;
 }
 
-.row-delete:hover { background: rgba(178, 58, 43, 0.1); border-color: var(--danger); }
+.row-delete:hover { background: rgba(183, 28, 28, 0.1); border-color: var(--danger); }
