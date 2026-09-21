@@ -17,11 +17,16 @@ DEFAULT_SQLITE_URL = f"sqlite:///{Path(__file__).parent / 'vitals.db'}"
 DATABASE_URL = os.environ.get("DATABASE_URL", DEFAULT_SQLITE_URL)
 
 # Managed Postgres providers (Heroku, Vercel Postgres/Neon, Railway) commonly
-# hand out a connection string starting "postgres://", which SQLAlchemy 2.x
-# no longer accepts - it wants the "postgresql://" form. Normalizing here
-# means the DATABASE_URL a provider gives you can be pasted in unmodified.
+# hand out a connection string starting "postgres://" or plain "postgresql://",
+# both of which tell SQLAlchemy to load its default driver, psycopg2 - but
+# requirements.txt installs psycopg (v3), not psycopg2, so that default load
+# fails at import time. Rewriting to "postgresql+psycopg://" pins SQLAlchemy
+# to the driver that's actually installed, and lets a provider's connection
+# string be pasted in unmodified either way.
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = "postgresql://" + DATABASE_URL[len("postgres://"):]
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgres://"):]
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL[len("postgresql://"):]
 
 # SQLite's driver rejects a connection being used from more than the thread
 # that created it by default, which conflicts with how FastAPI's dependency
