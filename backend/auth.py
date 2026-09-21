@@ -60,6 +60,16 @@ def create_session_token(user_id: int) -> str:
 
 
 def verify_session_token(token: str) -> int | None:
+    # A cookie value that isn't a token this app issued - garbage, truncated,
+    # left over from a different auth scheme, or hand-edited in devtools -
+    # must never crash the request; it just means "not signed in". Catching
+    # broadly here (rather than only ValueError/UnicodeDecodeError) matters:
+    # a non-ASCII cookie value raises UnicodeEncodeError at the .encode()
+    # step below, which previously escaped this except clause entirely and
+    # crashed the request during dependency resolution, before any of
+    # main.py's own error handling ran - producing a raw plain-text 500 from
+    # Starlette's default handler instead of a JSON error the frontend could
+    # parse.
     try:
         raw = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
         user_id_str, expires_at_str, signature = raw.split(":")
@@ -67,11 +77,10 @@ def verify_session_token(token: str) -> int | None:
         expected_signature = hmac.new(
             _get_secret_key(), payload.encode("utf-8"), hashlib.sha256
         ).hexdigest()
-    except (ValueError, UnicodeDecodeError):
+        if not hmac.compare_digest(signature, expected_signature):
+            return None
+        if int(expires_at_str) < time.time():
+            return None
+        return int(user_id_str)
+    except Exception:
         return None
-
-    if not hmac.compare_digest(signature, expected_signature):
-        return None
-    if int(expires_at_str) < time.time():
-        return None
-    return int(user_id_str)

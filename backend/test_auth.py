@@ -55,6 +55,17 @@ def test_session_token_rejects_garbage_input(tmp_path, monkeypatch):
     assert auth.verify_session_token("") is None
 
 
+def test_session_token_rejects_non_ascii_input_without_raising(tmp_path, monkeypatch):
+    """A cookie value with a non-ASCII character used to escape the
+    ValueError/UnicodeDecodeError catch at the .encode('ascii') step and
+    crash the request instead of just failing to verify - caught live as a
+    plain-text 500 ("Internal Server Error", not JSON) the frontend's
+    res.json() couldn't parse."""
+    monkeypatch.setattr(auth, "_SECRET_KEY_PATH", tmp_path / "secret")
+    assert auth.verify_session_token("café") is None
+    assert auth.verify_session_token("a:b:☃") is None
+
+
 def test_session_token_rejects_expired_token(tmp_path, monkeypatch):
     monkeypatch.setattr(auth, "_SECRET_KEY_PATH", tmp_path / "secret")
     monkeypatch.setattr(auth, "SESSION_MAX_AGE_SECONDS", -1)  # already expired the instant it's minted

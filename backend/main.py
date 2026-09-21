@@ -28,6 +28,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -76,6 +77,17 @@ async def no_cache_frontend(request, call_next):
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Starlette's own default 500 handler returns plain text, not JSON - the
+    # frontend's res.json() then throws its own confusing "Unexpected token"
+    # parse error instead of surfacing whatever actually broke. Any exception
+    # that reaches here is a real bug (every known failure mode is already
+    # caught and turned into an HTTPException closer to its source), but the
+    # response format should stay JSON regardless of where it came from.
+    return JSONResponse(status_code=500, content={"detail": f"Unexpected server error: {exc}"})
 
 
 def get_current_user_id(session: str | None = Cookie(default=None)) -> int:
@@ -161,18 +173,19 @@ async def upload_session(
     user_id: int | None = Depends(get_current_user_id_optional),
 ):
     suffix = Path(video.filename or "clip.webm").suffix or ".webm"
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        shutil.copyfileobj(video.file, tmp)
-        tmp_path = tmp.name
-
+    tmp_path = None
     try:
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            shutil.copyfileobj(video.file, tmp)
+            tmp_path = tmp.name
         result = process_video(tmp_path, include_debug=dev_mode)
     except VitalsError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:  # noqa: BLE001 - surface unexpected processing errors to the client
         raise HTTPException(status_code=500, detail=f"Processing failed: {e}")
     finally:
-        Path(tmp_path).unlink(missing_ok=True)
+        if tmp_path is not None:
+            Path(tmp_path).unlink(missing_ok=True)
 
     # Signed in -> save to that account's history. Anonymous -> just hand
     # back the reading for this one clip; nothing is written to the DB, so
