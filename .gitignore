@@ -10,3 +10,6 @@ CLAUDE.md
 PRODUCT.md
 DESIGN.md
 .impeccable/
+
+.vercel
+.env*
