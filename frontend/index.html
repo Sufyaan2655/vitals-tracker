@@ -84,21 +84,24 @@
           <a href="#how-it-works" class="btn">See how it works</a>
         </div>
       </div>
-      <div class="hero-trace" aria-hidden="true">
-        <svg viewBox="0 0 400 220" class="hero-trace-svg">
-          <defs>
-            <pattern id="traceGrid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M20 0H0V20" fill="none" class="hero-trace-grid-line" />
-            </pattern>
-          </defs>
-          <rect width="400" height="220" fill="url(#traceGrid)" />
-          <polyline
-            class="hero-trace-line"
-            pathLength="100"
-            points="0,110 40,110 46,110 52,30 58,175 64,110 82,70 100,110 140,110 146,110 152,30 158,175 164,110 182,70 200,110 240,110 246,110 252,30 258,175 264,110 282,70 300,110 340,110 346,110 352,30 358,175 364,110 382,70 400,110"
-          />
-        </svg>
-      </div>
+      <figure class="hero-trace-wrap">
+        <div class="hero-trace" aria-hidden="true">
+          <svg viewBox="0 0 400 220" class="hero-trace-svg">
+            <defs>
+              <pattern id="traceGrid" width="20" height="20" patternUnits="userSpaceOnUse">
+                <path d="M20 0H0V20" fill="none" class="hero-trace-grid-line" />
+              </pattern>
+            </defs>
+            <rect width="400" height="220" fill="url(#traceGrid)" />
+            <polyline
+              class="hero-trace-line"
+              pathLength="100"
+              points="0,110 40,110 46,110 52,30 58,175 64,110 82,70 100,110 140,110 146,110 152,30 158,175 164,110 182,70 200,110 240,110 246,110 252,30 258,175 264,110 282,70 300,110 340,110 346,110 352,30 358,175 364,110 382,70 400,110"
+            />
+          </svg>
+        </div>
+        <figcaption class="hero-trace-caption">A synthetic pulse trace - the shape this app's filter looks for in a real one.</figcaption>
+      </figure>
     </header>
 
     <section id="how-it-works" class="feature-section">

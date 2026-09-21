@@ -71,16 +71,21 @@ body {
 
 /* Site nav: fixed to the viewport, moves with scroll on purpose so Home /
    How it works / About / sign-in stay reachable from anywhere on a page
-   that's now long enough to need that. */
+   that's now long enough to need that. Solid, not a translucent blurred
+   pane over the content beneath it - a frosted-glass nav bar is close to
+   as reliable an AI-generated-page tell as a gradient hero. */
 .site-nav {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 100;
-  background: rgba(250, 251, 251, 0.92);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  /* A masthead double rule, not a generic app-chrome hairline - a thick
+     ink rule with a thin hairline set a few pixels beneath it is a
+     newspaper/magazine masthead convention, not a UI-kit default. */
+  border-bottom: 3px solid var(--text);
+  box-shadow: 0 4px 0 -1px var(--border);
 }
 
 .site-nav-inner {
@@ -271,14 +276,16 @@ html { scroll-behavior: smooth; }
 /* Marketing sections (Persuade mode): hero, how-it-works, the live example,
    and about. Distinct from the tool's card treatment - no border, no card
    shadow, wider breathing room - so the page reads as two registers: an
-   introduction, then a focused tool. */
+   article, then a focused instrument. Set in the serif rather than the
+   sans that titles the tool cards below - these read as the piece being
+   written about the instrument, not a control panel label. */
 .section-title {
   margin: 0 0 14px;
-  font-family: var(--sans);
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.15;
+  font-family: var(--serif);
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
 }
 
 .section-desc {
@@ -289,22 +296,25 @@ html { scroll-behavior: smooth; }
   max-width: 62ch;
 }
 
-/* Asymmetric two-column hero, left-set text - a centered headline over two
-   centered buttons is the single most recognizable generic-SaaS hero
-   shape. The right column opens with the most characteristic thing in
-   this product's world: an actual pulse trace, not a stock photo or an
-   abstract gradient blob. */
+/* Asymmetric hero, left-set text - a centered headline over two centered
+   buttons is the single most recognizable generic-SaaS hero shape, and a
+   perfectly balanced two-column split (each side vertically centered
+   against the other) is close behind it. This breaks both: an unequal
+   3:2 column split, and the figure on the right sits lower than the
+   headline rather than centered against it - like a diagram set into the
+   margin of a page rather than a hero graphic paired symmetrically with
+   its text. */
 .hero {
   padding: 32px 0 48px;
   text-align: left;
   display: grid;
   grid-template-columns: 1fr;
   gap: 36px;
-  align-items: center;
 }
 
 @media (min-width: 860px) {
-  .hero { grid-template-columns: 1.1fr 0.9fr; gap: 48px; }
+  .hero { grid-template-columns: 3fr 2fr; gap: 40px; align-items: start; }
+  .hero-trace-wrap { margin-top: 64px; }
 }
 
 .hero-title {
@@ -345,6 +355,8 @@ html { scroll-behavior: smooth; }
   align-items: center;
 }
 
+.hero-trace-wrap { margin: 0; }
+
 /* The hero's one bold visual: an actual pulse trace on a strip-chart-paper
    ground, not a gradient blob or a stock photo. Grid lines aren't
    decorative - they're the paper this kind of waveform is traditionally
@@ -355,6 +367,19 @@ html { scroll-behavior: smooth; }
   border-radius: 14px;
   overflow: hidden;
   box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
+}
+
+/* A figure caption, not a decorative eyebrow - it sits below the thing it
+   describes rather than announcing content that hasn't appeared yet, the
+   way a diagram in a paper or a plate in a magazine is captioned. */
+.hero-trace-caption {
+  margin: 10px 2px 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  max-width: 40ch;
 }
 
 .hero-trace-svg {
@@ -420,9 +445,13 @@ html { scroll-behavior: smooth; }
   position: relative;
   margin-top: 36px;
   display: grid;
-  grid-template-columns: 40px 1fr;
+  grid-template-columns: 56px 1fr;
   column-gap: 20px;
   row-gap: 32px;
+}
+
+@media (min-width: 500px) {
+  .step-sequence { grid-template-columns: 72px 1fr; }
 }
 
 .step-item { display: contents; }
@@ -432,28 +461,27 @@ html { scroll-behavior: smooth; }
   grid-row: 1 / -1;
   width: 1px;
   background: var(--border);
-  justify-self: center;
-  margin: 20px 0;
+  justify-self: end;
+  margin: 12px 6px 12px 0;
 }
 
+/* A large bare numeral set into the margin, like a numbered list in a
+   printed book or paper, not a small circled UI badge - the connecting
+   line is secondary now, a quiet thread rather than the main device. */
 .step-number {
   grid-column: 1;
   grid-row: auto;
   z-index: 1;
   align-self: start;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--sans);
-  font-weight: 700;
-  font-size: 14px;
+  justify-self: end;
+  padding-right: 6px;
+  font-family: var(--serif);
+  font-weight: 600;
+  font-size: 30px;
+  font-style: italic;
   color: var(--accent);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
 
 .step-body { grid-column: 2; }
@@ -565,6 +593,19 @@ html { scroll-behavior: smooth; }
   max-width: 68ch;
 }
 
+/* A drop cap on the opening paragraph - a real, old typographic device
+   for marking where a piece of writing begins, not a decorative flourish
+   bolted onto a UI screen. */
+.about-section p:first-of-type::first-letter {
+  float: left;
+  font-family: var(--serif);
+  font-size: 64px;
+  font-weight: 600;
+  line-height: 0.8;
+  padding: 6px 6px 0 0;
+  color: var(--accent);
+}
+
 .about-section strong { color: var(--text); }
 
 .about-section a {
@@ -596,8 +637,7 @@ html { scroll-behavior: smooth; }
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(33, 29, 23, 0.28);
-  backdrop-filter: blur(2px);
+  background: rgba(33, 29, 23, 0.4);
 }
 
 /* Auth widget: a compact popover anchored under the header, not a full-page
