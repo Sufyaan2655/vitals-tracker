@@ -1,20 +1,23 @@
 :root {
-  /* Deliberately deeper than a pale "safe" cream - a warm kraft-paper tan
-     with a card surface that pops meaningfully lighter against it, rather
-     than the flat pale-off-white-everywhere pattern that's becoming its own
-     AI-default tell. */
-  --bg: #e6d3a8;
-  --surface: #fffdf7;
-  --surface-2: #d9c28f;
-  --border: #c9ad78;
-  --text: #2e2016;
-  --text-dim: #5c4a30;
-  --accent: #a8472a;       /* deep terracotta - heart rate, primary actions */
-  --accent-2: #5f7a45;     /* sage - breathing rate */
-  --success: #5f7a45;      /* high confidence */
-  --warning: #a8752a;
-  --danger: #99402a;
-  --ink-on-accent: #fffdf7;
+  /* A cool slate-grey, not the warm cream (near #F4F1EA) that's become its
+     own AI-default tell, especially paired with a terracotta accent the
+     way this palette used to be. Even a desaturated warm neutral still
+     reads as "cream" - the hue needs to actually cross into cool territory
+     (blue-grey rather than yellow-grey) to escape that, so the warm ink
+     text below sits against a genuinely cool ground instead of a
+     monochrome-warm field. */
+  --bg: #e2e6e6;
+  --surface: #fafbfb;
+  --surface-2: #d2d7d7;
+  --border: #bfc4c4;
+  --text: #211d17;
+  --text-dim: #5a554a;
+  --accent: #8b2332;       /* oxblood - the color of the thing this app measures (blood volume pulse); heart rate + primary actions */
+  --accent-2: #1f6b68;     /* petrol teal - breathing, a distinct cool hue rather than an earthy wellness green */
+  --success: #1f6b68;      /* high confidence */
+  --warning: #a66a1e;
+  --danger: #b23a2b;
+  --ink-on-accent: #fafbfb;
   --sans: "Bricolage Grotesque", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --serif: "Source Serif 4", Georgia, "Times New Roman", serif;
 }
@@ -57,26 +60,13 @@ body {
   stroke-linejoin: round;
 }
 
+/* Static, not looping - the hero's trace (below) is the page's one
+   orchestrated motion moment. A second, permanently-looping animation in
+   the corner of every screen the whole time someone reads the page would
+   be exactly the scattered-effects pattern worth avoiding. */
 .brand-mark polyline {
   stroke-dasharray: 100;
-  animation: trace-sweep 2.6s ease-in-out infinite;
-}
-
-/* The one orchestrated motion moment in the whole page: the wordmark's own
-   waveform redraws itself like a hand re-tracing a line, instead of sitting
-   static. Everything else in the UI is deliberately still. */
-@keyframes trace-sweep {
-  0% { stroke-dashoffset: 100; }
-  45% { stroke-dashoffset: 0; }
-  75% { stroke-dashoffset: 0; }
-  100% { stroke-dashoffset: -100; }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .brand-mark polyline {
-    animation: none;
-    stroke-dashoffset: 0;
-  }
+  stroke-dashoffset: 0;
 }
 
 /* Site nav: fixed to the viewport, moves with scroll on purpose so Home /
@@ -88,7 +78,7 @@ body {
   left: 0;
   right: 0;
   z-index: 100;
-  background: rgba(255, 253, 247, 0.92);
+  background: rgba(250, 251, 251, 0.92);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -166,7 +156,7 @@ body {
   flex-direction: column;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
-  box-shadow: 0 16px 32px -24px rgba(46, 32, 22, 0.35);
+  box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
   padding: 8px 20px;
 }
 
@@ -253,17 +243,15 @@ html { scroll-behavior: smooth; }
   border-radius: 14px;
   padding: 24px 24px 26px;
   margin-bottom: 20px;
-  box-shadow: 0 16px 32px -24px rgba(46, 32, 22, 0.35);
+  box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
 }
 
 .card h2 {
   margin: 0 0 14px;
   font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .card h2::before {
@@ -301,13 +289,22 @@ html { scroll-behavior: smooth; }
   max-width: 62ch;
 }
 
-/* Left-set rather than centered - a centered headline over two centered
-   buttons is the single most recognizable generic-SaaS hero shape, and
-   this product's identity is closer to a journal entry than a launch
-   announcement. */
+/* Asymmetric two-column hero, left-set text - a centered headline over two
+   centered buttons is the single most recognizable generic-SaaS hero
+   shape. The right column opens with the most characteristic thing in
+   this product's world: an actual pulse trace, not a stock photo or an
+   abstract gradient blob. */
 .hero {
   padding: 32px 0 48px;
   text-align: left;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 36px;
+  align-items: center;
+}
+
+@media (min-width: 860px) {
+  .hero { grid-template-columns: 1.1fr 0.9fr; gap: 48px; }
 }
 
 .hero-title {
@@ -346,6 +343,55 @@ html { scroll-behavior: smooth; }
   text-decoration: none;
   display: inline-flex;
   align-items: center;
+}
+
+/* The hero's one bold visual: an actual pulse trace on a strip-chart-paper
+   ground, not a gradient blob or a stock photo. Grid lines aren't
+   decorative - they're the paper this kind of waveform is traditionally
+   recorded on, so they carry real information about what's being shown. */
+.hero-trace {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 16px 32px -24px rgba(33, 29, 23, 0.35);
+}
+
+.hero-trace-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.hero-trace-grid-line {
+  stroke: var(--border);
+  stroke-width: 1;
+  opacity: 0.5;
+}
+
+.hero-trace-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 100;
+  animation: hero-trace-draw 1.6s ease-out 0.3s forwards;
+}
+
+/* The single orchestrated motion moment on the page: the trace draws
+   itself in once, on load, like a strip-chart recorder's pen moving
+   across the paper - then everything is still. */
+@keyframes hero-trace-draw {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-trace-line {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
 }
 
 .feature-section,
@@ -521,6 +567,14 @@ html { scroll-behavior: smooth; }
 
 .about-section strong { color: var(--text); }
 
+.about-section a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.about-section a:hover { color: var(--danger); }
+
 .site-footer {
   margin-top: 40px;
   padding: 24px 0 0;
@@ -542,7 +596,7 @@ html { scroll-behavior: smooth; }
   position: fixed;
   inset: 0;
   z-index: 90;
-  background: rgba(46, 32, 22, 0.28);
+  background: rgba(33, 29, 23, 0.28);
   backdrop-filter: blur(2px);
 }
 
@@ -559,7 +613,7 @@ html { scroll-behavior: smooth; }
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 18px;
-  box-shadow: 0 20px 40px -20px rgba(46, 32, 22, 0.45);
+  box-shadow: 0 20px 40px -20px rgba(33, 29, 23, 0.45);
 }
 
 .auth-panel .field { margin-bottom: 12px; }
@@ -593,7 +647,7 @@ html { scroll-behavior: smooth; }
 .auth-tab.active {
   background: var(--surface);
   color: var(--text);
-  box-shadow: 0 2px 6px -2px rgba(46, 32, 22, 0.3);
+  box-shadow: 0 2px 6px -2px rgba(33, 29, 23, 0.3);
 }
 
 .field {
@@ -678,14 +732,14 @@ video:focus-visible {
   font-weight: 600;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(255, 253, 247, 0.92);
+  background: rgba(250, 251, 251, 0.92);
   color: var(--success);
-  border: 1px solid rgba(95, 122, 69, 0.4);
+  border: 1px solid rgba(31, 107, 104, 0.4);
 }
 
 .live-tracking-status.warning {
   color: var(--danger);
-  border-color: rgba(153, 64, 42, 0.4);
+  border-color: rgba(178, 58, 43, 0.4);
 }
 
 .camera-controls {
@@ -741,7 +795,7 @@ video:focus-visible {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--ink-on-accent);
-  box-shadow: 0 10px 24px -12px rgba(168, 71, 42, 0.55);
+  box-shadow: 0 10px 24px -12px rgba(139, 35, 50, 0.55);
 }
 
 .btn-primary:hover:not(:disabled) { border-color: var(--accent); background: var(--accent); filter: brightness(1.08); }
@@ -837,11 +891,10 @@ video:focus-visible {
 
 .stat-label {
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-dim);
   margin-top: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 .stat-confidence {
@@ -928,7 +981,7 @@ video:focus-visible {
 }
 
 .toggle input:checked + .toggle-track {
-  background: rgba(168, 71, 42, 0.18);
+  background: rgba(139, 35, 50, 0.18);
   border-color: var(--accent);
 }
 
@@ -1045,11 +1098,9 @@ video:focus-visible {
 .chart-box h3 {
   margin: 0 0 8px;
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* History stats + table */
@@ -1080,11 +1131,10 @@ video:focus-visible {
 
 .stat-mini-label {
   font-family: var(--sans);
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 600;
   color: var(--text-dim);
   margin-top: 3px;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
 }
 
 #confidenceChart { margin-top: 20px; }
@@ -1106,9 +1156,7 @@ video:focus-visible {
   text-align: left;
   color: var(--text-dim);
   font-weight: 600;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 12px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--border);
 }
@@ -1119,7 +1167,7 @@ video:focus-visible {
   font-variant-numeric: tabular-nums;
 }
 
-.history-table tr:hover td { background: rgba(168, 71, 42, 0.06); }
+.history-table tr:hover td { background: rgba(139, 35, 50, 0.06); }
 
 .row-delete {
   position: relative;
@@ -1145,4 +1193,4 @@ video:focus-visible {
   inset: -10px;
 }
 
-.row-delete:hover { background: rgba(153, 64, 42, 0.1); border-color: var(--danger); }
+.row-delete:hover { background: rgba(178, 58, 43, 0.1); border-color: var(--danger); }
