@@ -47,7 +47,6 @@ def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT,
                 user_id INTEGER,
                 created_at REAL NOT NULL,
                 heart_rate_bpm REAL NOT NULL,
@@ -60,14 +59,27 @@ def init_db() -> None:
             )
             """
         )
-        # Migration for a pre-accounts database: the old `sessions` table has
-        # no `user_id` column. Add it without touching existing rows - those
-        # were written under typed, unauthenticated names before real
-        # accounts existed, so there is no account to migrate them to; they
-        # simply stop being reachable through the app rather than deleted.
+        # Migrations for a pre-accounts database, which predates both
+        # `user_id` and the removal of the old `username TEXT NOT NULL`
+        # column. Add the former, drop the latter - existing rows written
+        # under typed, unauthenticated names before real accounts existed
+        # have no account to migrate to, so they simply stop being
+        # reachable through the app rather than being deleted.
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
         if "user_id" not in existing_cols:
             conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+        if "username" in existing_cols:
+            # CREATE TABLE IF NOT EXISTS is a no-op against an existing
+            # table, so a database created before this column was removed
+            # from the schema above still enforces its old NOT NULL
+            # constraint - insert_session() stopped supplying a username
+            # long ago, so every signed-in save started failing with
+            # "NOT NULL constraint failed: sessions.username" the moment
+            # video processing itself stopped swallowing that error
+            # silently (see the job-queue fix). The column is otherwise
+            # unused - nothing reads or writes it - so it's dropped
+            # outright rather than just relaxed.
+            conn.execute("ALTER TABLE sessions DROP COLUMN username")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS jobs (
