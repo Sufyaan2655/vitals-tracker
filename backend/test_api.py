@@ -9,6 +9,8 @@ username - every session-scoped test signs up a throwaway account first and
 reuses the TestClient's cookie jar, exactly like a real browser would.
 """
 
+import time
+
 import cv2
 import numpy as np
 import pytest
@@ -53,6 +55,30 @@ def _draw_face_like_frame(width, height, cx, cy, face_radius, green_value):
     cv2.circle(frame, (cx + eye_offset_x, cy - eye_offset_y), eye_r, (10, 10, 10), -1)
     cv2.ellipse(frame, (cx, cy + face_radius // 2), (face_radius // 2, face_radius // 4), 0, 0, 180, (10, 10, 10), 3)
     return frame
+
+
+def _upload_and_wait(client, clip_path, filename="clip.mp4", dev_mode=False, timeout_s=15):
+    """Upload a clip and poll the job it returns until it lands on done or
+    failed - processing now runs as a background task (see main.py) instead
+    of blocking the upload request itself, so every test that used to read
+    the result straight off the upload response polls for it instead."""
+    with open(clip_path, "rb") as f:
+        data = {"dev_mode": "true"} if dev_mode else {}
+        upload = client.post(
+            "/api/sessions/upload",
+            files={"video": (filename, f, "video/mp4")},
+            data=data,
+        )
+    assert upload.status_code == 200, upload.text
+    job_id = upload.json()["job_id"]
+
+    deadline = time.monotonic() + timeout_s
+    while time.monotonic() < deadline:
+        job = client.get(f"/api/jobs/{job_id}").json()
+        if job["status"] in ("done", "failed"):
+            return job
+        time.sleep(0.05)
+    raise AssertionError(f"job {job_id} did not finish within {timeout_s}s")
 
 
 def _write_synthetic_clip(path, fps=30, duration_s=8, bpm=75):
@@ -134,14 +160,9 @@ def test_upload_endpoint_processes_synthetic_clip_and_stores_session(client, tmp
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=75)
 
-    with open(clip_path, "rb") as f:
-        response = client.post(
-            "/api/sessions/upload",
-            files={"video": ("clip.mp4", f, "video/mp4")},
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
+    job = _upload_and_wait(client, clip_path)
+    assert job["status"] == "done", job.get("error")
+    body = job["result"]
     assert "heart_rate_bpm" in body
     assert "breathing_rate_bpm" in body
     assert body["num_frames"] > 0
@@ -161,14 +182,9 @@ def test_upload_endpoint_works_when_signed_out_but_does_not_save(client, tmp_pat
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=75)
 
-    with open(clip_path, "rb") as f:
-        response = client.post(
-            "/api/sessions/upload",
-            files={"video": ("clip.mp4", f, "video/mp4")},
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
+    job = _upload_and_wait(client, clip_path)
+    assert job["status"] == "done", job.get("error")
+    body = job["result"]
     assert "heart_rate_bpm" in body
     assert body["saved"] is False
     assert body["id"] is None
@@ -177,6 +193,21 @@ def test_upload_endpoint_works_when_signed_out_but_does_not_save(client, tmp_pat
     signup(client, "late_signup_user")
     history = client.get("/api/sessions")
     assert history.json() == []
+
+
+def test_job_endpoint_requires_owning_account_for_signed_in_jobs(client, tmp_path):
+    signup(client, "job_owner")
+    clip_path = str(tmp_path / "clip.mp4")
+    _write_synthetic_clip(clip_path, bpm=75)
+
+    with open(clip_path, "rb") as f:
+        job_id = client.post(
+            "/api/sessions/upload", files={"video": ("clip.mp4", f, "video/mp4")}
+        ).json()["job_id"]
+
+    # Switch accounts - a fresh signup overwrites the client's session cookie.
+    signup(client, "someone_else")
+    assert client.get(f"/api/jobs/{job_id}").status_code == 404
 
 
 def test_detect_face_endpoint_finds_face_in_synthetic_frame(client):
@@ -222,15 +253,9 @@ def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client,
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=75, duration_s=8)
 
-    with open(clip_path, "rb") as f:
-        response = client.post(
-            "/api/sessions/upload",
-            files={"video": ("clip.mp4", f, "video/mp4")},
-            data={"dev_mode": "true"},
-        )
-
-    assert response.status_code == 200, response.text
-    body = response.json()
+    job = _upload_and_wait(client, clip_path, dev_mode=True)
+    assert job["status"] == "done", job.get("error")
+    body = job["result"]
     assert "debug" in body
     debug = body["debug"]
 
@@ -248,12 +273,8 @@ def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client,
         assert box[2] > 0 and box[3] > 0
 
     # dev_mode defaults to off and must not add this payload
-    with open(clip_path, "rb") as f:
-        plain_response = client.post(
-            "/api/sessions/upload",
-            files={"video": ("clip.mp4", f, "video/mp4")},
-        )
-    assert "debug" not in plain_response.json()
+    plain_job = _upload_and_wait(client, clip_path, dev_mode=False)
+    assert "debug" not in plain_job["result"]
 
 
 def test_delete_session_removes_it_from_history(client, tmp_path):
@@ -261,9 +282,8 @@ def test_delete_session_removes_it_from_history(client, tmp_path):
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=70, duration_s=8)
 
-    with open(clip_path, "rb") as f:
-        upload = client.post("/api/sessions/upload", files={"video": ("clip.mp4", f, "video/mp4")})
-    session_id = upload.json()["id"]
+    job = _upload_and_wait(client, clip_path)
+    session_id = job["result"]["id"]
 
     delete_response = client.delete(f"/api/sessions/{session_id}")
     assert delete_response.status_code == 200
@@ -277,9 +297,8 @@ def test_delete_session_requires_owning_account(client, tmp_path):
     clip_path = str(tmp_path / "clip.mp4")
     _write_synthetic_clip(clip_path, bpm=70, duration_s=8)
 
-    with open(clip_path, "rb") as f:
-        upload = client.post("/api/sessions/upload", files={"video": ("clip.mp4", f, "video/mp4")})
-    session_id = upload.json()["id"]
+    job = _upload_and_wait(client, clip_path)
+    session_id = job["result"]["id"]
 
     # Switch accounts (a fresh signup overwrites the client's session cookie).
     signup(client, "someone_else")
@@ -293,17 +312,17 @@ def test_delete_session_requires_owning_account(client, tmp_path):
 
 
 def test_upload_endpoint_rejects_too_short_clip(client, tmp_path):
+    # Upload itself always succeeds now (it just queues a job) - a clip
+    # that's too short to process fails the background job instead of the
+    # request, so the frontend finds out by polling like it would for any
+    # other processing failure.
     signup(client, "test_user")
     clip_path = str(tmp_path / "short.mp4")
     _write_synthetic_clip(clip_path, duration_s=1, bpm=75)
 
-    with open(clip_path, "rb") as f:
-        response = client.post(
-            "/api/sessions/upload",
-            files={"video": ("short.mp4", f, "video/mp4")},
-        )
-
-    assert response.status_code == 422
+    job = _upload_and_wait(client, clip_path, filename="short.mp4")
+    assert job["status"] == "failed"
+    assert "too short" in job["error"].lower()
 
 
 def test_health_endpoint(client):

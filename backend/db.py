@@ -1,10 +1,12 @@
-"""SQLite persistence: user accounts + per-user session history.
+"""SQLite persistence: user accounts + per-user session history + the
+background job queue that video processing runs through.
 
 Sessions are scoped by `user_id` (a real account, see auth.py), not a typed
 username string - that changed once real sign-in replaced the trust-any-
 name model. Kept to raw sqlite3, no ORM, at this scale.
 """
 
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -65,6 +67,19 @@ def init_db() -> None:
     existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)").fetchall()}
     if "user_id" not in existing_cols:
         conn.execute("ALTER TABLE sessions ADD COLUMN user_id INTEGER")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL,
+            result_json TEXT,
+            error TEXT
+        )
+        """
+    )
     conn.commit()
     conn.close()
 
@@ -154,3 +169,52 @@ def get_sessions(user_id: int) -> list[dict]:
         session["heart_rate_plausible"] = is_plausible_bpm(session["heart_rate_bpm"], HEART_RATE_PLAUSIBLE_BPM)
         session["breathing_rate_plausible"] = is_plausible_bpm(session["breathing_rate_bpm"], BREATHING_RATE_PLAUSIBLE_BPM)
     return sessions
+
+
+# ---------------------------------------------------------------------------
+# Background job queue: video processing is the compute-heavy part of this
+# app, so the upload endpoint creates a row here and returns immediately
+# rather than blocking the HTTP request for the duration of processing. A
+# FastAPI BackgroundTask (see main.py) does the actual work and updates the
+# row through the same three states every job passes through once: pending
+# -> processing -> done (with a result) or failed (with an error message).
+# ---------------------------------------------------------------------------
+
+def create_job(user_id: int | None) -> int:
+    conn = get_connection()
+    now = time.time()
+    cur = conn.execute(
+        "INSERT INTO jobs (user_id, status, created_at, updated_at) VALUES (?, 'pending', ?, ?)",
+        (user_id, now, now),
+    )
+    conn.commit()
+    job_id = cur.lastrowid
+    conn.close()
+    return job_id
+
+
+def get_job(job_id: int) -> dict | None:
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+    if row is None:
+        return None
+    job = dict(row)
+    result_json = job.pop("result_json")
+    job["result"] = json.loads(result_json) if result_json else None
+    return job
+
+
+def update_job(
+    job_id: int,
+    status: str,
+    result: dict | None = None,
+    error: str | None = None,
+) -> None:
+    conn = get_connection()
+    conn.execute(
+        "UPDATE jobs SET status = ?, result_json = ?, error = ?, updated_at = ? WHERE id = ?",
+        (status, json.dumps(result) if result is not None else None, error, time.time(), job_id),
+    )
+    conn.commit()
+    conn.close()

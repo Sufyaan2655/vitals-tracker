@@ -6,10 +6,14 @@ Endpoints:
   POST /api/auth/login        - sign in
   POST /api/auth/logout       - sign out
   GET  /api/auth/me           - who's signed in (401 if nobody)
-  POST /api/sessions/upload   - upload a short webcam clip, get back HR/BR estimates.
-                                 Works signed-out (result just isn't saved) or
+  POST /api/sessions/upload   - upload a short webcam clip. Returns a job id
+                                 immediately (processing runs in the
+                                 background - see the jobs queue below)
+                                 rather than blocking the request. Works
+                                 signed-out (result just isn't saved) or
                                  signed-in (saved to that account's history) -
                                  trying the tool never requires an account.
+  GET  /api/jobs/{job_id}     - poll a processing job's status/result
   GET  /api/sessions          - the signed-in user's session history (for the trends chart)
   GET  /api/health            - basic liveness check
 
@@ -27,7 +31,7 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import Cookie, Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
+from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -166,26 +170,24 @@ def me(user_id: int = Depends(get_current_user_id)):
     return {"id": user["id"], "username": user["username"]}
 
 
-@app.post("/api/sessions/upload")
-async def upload_session(
-    video: UploadFile,
-    dev_mode: bool = Form(False),
-    user_id: int | None = Depends(get_current_user_id_optional),
-):
-    suffix = Path(video.filename or "clip.webm").suffix or ".webm"
-    tmp_path = None
+def _run_processing_job(job_id: int, tmp_path: str, dev_mode: bool, user_id: int | None) -> None:
+    # Runs off the request thread (see BackgroundTasks below) - video
+    # processing (face detection, band-pass filtering, FFT) is the
+    # compute-heavy part of this app, and used to block the whole upload
+    # request for its duration. The job row is how the frontend finds out
+    # what happened instead of waiting on the response.
+    db.update_job(job_id, status="processing")
     try:
-        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-            shutil.copyfileobj(video.file, tmp)
-            tmp_path = tmp.name
-        result = process_video(tmp_path, include_debug=dev_mode)
-    except VitalsError as e:
-        raise HTTPException(status_code=422, detail=str(e))
-    except Exception as e:  # noqa: BLE001 - surface unexpected processing errors to the client
-        raise HTTPException(status_code=500, detail=f"Processing failed: {e}")
-    finally:
-        if tmp_path is not None:
+        try:
+            result = process_video(tmp_path, include_debug=dev_mode)
+        finally:
             Path(tmp_path).unlink(missing_ok=True)
+    except VitalsError as e:
+        db.update_job(job_id, status="failed", error=str(e))
+        return
+    except Exception as e:  # noqa: BLE001 - surface unexpected processing errors to the client
+        db.update_job(job_id, status="failed", error=f"Processing failed: {e}")
+        return
 
     # Signed in -> save to that account's history. Anonymous -> just hand
     # back the reading for this one clip; nothing is written to the DB, so
@@ -195,7 +197,39 @@ async def upload_session(
     else:
         result["id"] = None
     result["saved"] = user_id is not None
-    return result
+    db.update_job(job_id, status="done", result=result)
+
+
+@app.post("/api/sessions/upload")
+async def upload_session(
+    background_tasks: BackgroundTasks,
+    video: UploadFile,
+    dev_mode: bool = Form(False),
+    user_id: int | None = Depends(get_current_user_id_optional),
+):
+    suffix = Path(video.filename or "clip.webm").suffix or ".webm"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        shutil.copyfileobj(video.file, tmp)
+        tmp_path = tmp.name
+
+    job_id = db.create_job(user_id)
+    background_tasks.add_task(_run_processing_job, job_id, tmp_path, dev_mode, user_id)
+    return {"job_id": job_id, "status": "pending"}
+
+
+@app.get("/api/jobs/{job_id}")
+def get_job_status(job_id: int, user_id: int | None = Depends(get_current_user_id_optional)):
+    job = db.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    # A job created anonymously has no owner to check against - polling it
+    # is the immediate follow-up to the upload that created it, the same
+    # trust boundary the old synchronous response had (no auth needed to
+    # read back your own just-created result). A job created by a signed-in
+    # user is scoped to that account like everything else.
+    if job["user_id"] is not None and job["user_id"] != user_id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
 
 
 @app.post("/api/detect-face")

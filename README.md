@@ -115,7 +115,7 @@ backend/
   vitals.py          the actual signal-processing pipeline (pure + testable)
   auth.py            password hashing (PBKDF2) + signed session tokens (stdlib only)
   main.py            FastAPI app: auth/upload/history/delete endpoints
-  db.py              SQLite persistence: users + per-user sessions
+  db.py              SQLite persistence: users, per-user sessions, background jobs
   test_vitals.py     unit tests against synthetic sine waves (validates the math)
   test_auth.py       unit tests for password hashing + session tokens
   test_api.py        end-to-end test hitting the real API with a synthetic clip
@@ -125,10 +125,18 @@ backend/
 - `POST /api/auth/signup` / `POST /api/auth/login` / `POST /api/auth/logout`
   / `GET /api/auth/me` — account creation, sign-in, sign-out, and session
   check. Sets/clears the session cookie.
-- `POST /api/sessions/upload` — `video`, optional `dev_mode` (`true`/`false`)
-  to also return the tracking/signal debug payload above. Works signed-out
-  (the response comes back with `"saved": false, "id": null` and nothing is
-  written to the DB) or signed-in (saved to that account's history).
+- `POST /api/sessions/upload` — `video`, optional `dev_mode` (`true`/`false`).
+  Returns `{job_id, status}` immediately; the actual face detection/filtering/
+  FFT work (the compute-heavy part of the app) runs as a background task
+  rather than blocking the request. Works signed-out (the eventual result
+  comes back with `"saved": false, "id": null` and nothing is written to the
+  DB) or signed-in (saved to that account's history once the job finishes).
+- `GET /api/jobs/{id}` — poll a processing job: `{status: pending|processing|
+  done|failed, result, error}`. `result` is the same payload the upload
+  endpoint used to return directly; `error` is set only if `status` is
+  `failed`. Scoped to the owning account for a signed-in upload; an
+  anonymous upload's job is reachable by anyone who has its id, matching the
+  trust boundary the old synchronous response already had.
 - `POST /api/detect-face` — a single JPEG frame in, `{detected, regions}`
   out; powers the live dev-mode overlay, stateless, nothing persisted.
 - `GET /api/sessions` — the signed-in account's session history. Requires a
