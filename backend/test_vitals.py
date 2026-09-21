@@ -187,18 +187,46 @@ def test_estimate_vitals_from_signals_end_to_end_on_synthetic_data():
 
 
 def test_fft_spectrum_peak_matches_dominant_frequency_bpm():
-    """dev-mode's plotted spectrum must peak at the same frequency the
-    headline bpm number is derived from - otherwise the chart would mislead
-    rather than explain the estimate."""
+    """dev-mode's plotted spectrum must peak within one raw FFT bin of the
+    headline bpm number - otherwise the chart would mislead rather than
+    explain the estimate. Not an exact match: dominant_frequency_bpm refines
+    the raw bin with sub-bin (parabolic) interpolation, so the two can
+    differ by a fraction of a bin's width on purpose."""
     fs = 30.0
-    signal = make_sine(1.2, fs, duration_s=15, noise_std=0.1, seed=5)  # 72 bpm
+    duration_s = 15
+    signal = make_sine(1.2, fs, duration_s=duration_s, noise_std=0.1, seed=5)  # 72 bpm
     filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
 
     freqs, magnitude = fft_spectrum(filtered, fs)
     peak_hz = freqs[int(np.argmax(magnitude))]
 
     expected_bpm = dominant_frequency_bpm(filtered, fs)
-    assert abs(peak_hz * 60.0 - expected_bpm) < 1e-6
+    bin_width_bpm = (fs / (fs * duration_s)) * 60.0  # fs/n in Hz, converted to bpm
+    assert abs(peak_hz * 60.0 - expected_bpm) <= bin_width_bpm
+
+
+def test_dominant_frequency_bpm_interpolates_between_bins():
+    """A signal whose true frequency sits deliberately between two raw FFT
+    bins should land closer to the true value than either bin alone -
+    otherwise every reading is silently quantized to ~4 bpm steps on a
+    15-second clip regardless of how clean the underlying signal is."""
+    fs = 30.0
+    duration_s = 15
+    n = int(fs * duration_s)
+    bin_width_hz = fs / n
+    # A frequency deliberately half a bin off from the nearest FFT bin, and
+    # comfortably inside HEART_RATE_BAND_HZ so the band-pass filter doesn't
+    # attenuate it away.
+    off_bin_hz = 18.5 * bin_width_hz  # ~74 bpm
+    true_bpm = off_bin_hz * 60.0
+
+    signal = make_sine(off_bin_hz, fs, duration_s=duration_s, noise_std=0.05, seed=11)
+    filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
+
+    estimated_bpm = dominant_frequency_bpm(filtered, fs)
+    raw_bin_bpm = round(off_bin_hz / bin_width_hz) * bin_width_hz * 60.0
+
+    assert abs(estimated_bpm - true_bpm) < abs(raw_bin_bpm - true_bpm)
 
 
 def test_forehead_roi_bounds_is_inside_face_bbox():

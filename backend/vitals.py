@@ -91,6 +91,14 @@ def dominant_frequency_bpm(signal: np.ndarray, fs: float, prefer_fundamental: bo
     more harm than good there (it was tried and produced false positives
     near the breathing band's low edge), so estimate_vitals_from_signals
     only passes this for the heart-rate call.
+
+    The returned frequency is refined with quadratic interpolation around
+    the chosen bin (see `_parabolic_interpolate`) rather than snapped to the
+    raw bin - a 15-second clip only gives ~4 bpm of raw FFT resolution, so
+    without this every reading is silently quantized to the nearest ~4 bpm
+    regardless of how clean the signal actually is. This applies to both
+    heart rate and breathing rate equally, since both go through this same
+    function.
     """
     signal = np.asarray(signal, dtype=np.float64)
     n = len(signal)
@@ -103,7 +111,30 @@ def dominant_frequency_bpm(signal: np.ndarray, fs: float, prefer_fundamental: bo
     peak_idx = int(np.argmax(magnitude))
     if prefer_fundamental:
         peak_idx = _prefer_subharmonic_if_present(freqs, magnitude, peak_idx)
-    return float(freqs[peak_idx] * 60.0)
+    refined_idx = _parabolic_interpolate(magnitude, peak_idx)
+    freq_step = freqs[1] - freqs[0] if len(freqs) > 1 else 0.0
+    refined_hz = freqs[peak_idx] + (refined_idx - peak_idx) * freq_step
+    return float(refined_hz * 60.0)
+
+
+def _parabolic_interpolate(magnitude: np.ndarray, peak_idx: int) -> float:
+    """Refine a discrete FFT peak to a fractional bin position by fitting a
+    parabola through the peak and its two neighboring bins - a standard,
+    well-established technique (used the same way in audio pitch detection)
+    for locating a spectral peak more precisely than the raw bin spacing
+    allows, without needing a longer signal or a bigger FFT. Falls back to
+    the untouched integer bin at the spectrum's edges, where there's no
+    second neighbor to fit against.
+    """
+    if peak_idx <= 0 or peak_idx >= len(magnitude) - 1:
+        return float(peak_idx)
+    y1, y2, y3 = magnitude[peak_idx - 1], magnitude[peak_idx], magnitude[peak_idx + 1]
+    denom = y1 - 2 * y2 + y3
+    if denom == 0:
+        return float(peak_idx)
+    offset = 0.5 * (y1 - y3) / denom
+    offset = float(np.clip(offset, -0.5, 0.5))
+    return peak_idx + offset
 
 
 def _prefer_subharmonic_if_present(freqs: np.ndarray, magnitude: np.ndarray, peak_idx: int) -> int:
