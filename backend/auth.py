@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import os
 import secrets
 import time
 from pathlib import Path
@@ -23,6 +24,17 @@ _SECRET_KEY_PATH = Path(__file__).parent / ".session_secret"
 
 
 def _get_secret_key() -> bytes:
+    # A serverless deployment's filesystem doesn't persist between
+    # invocations (Vercel, most "just a function" hosts) - a key written to
+    # disk on one invocation is gone by the next, silently invalidating
+    # every signed-out-then-back-in session. SESSION_SECRET_KEY (set once in
+    # the platform's environment variables) is the production path; the
+    # local file remains for local dev, where persisting it there is exactly
+    # the convenience it was built for - one real key across restarts with
+    # nothing to configure.
+    env_key = os.environ.get("SESSION_SECRET_KEY")
+    if env_key:
+        return env_key.encode("utf-8")
     if _SECRET_KEY_PATH.exists():
         return _SECRET_KEY_PATH.read_bytes()
     key = secrets.token_bytes(32)

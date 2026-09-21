@@ -15,6 +15,9 @@ Endpoints:
                                  trying the tool never requires an account.
   GET  /api/jobs/{job_id}     - poll a processing job's status/result
   GET  /api/sessions          - the signed-in user's session history (for the trends chart)
+  POST /api/sessions/{id}/tags   - attach a tag to one of your sessions
+  DELETE /api/sessions/{id}/tags/{tag_name} - remove a tag from one of your sessions
+  GET  /api/tags              - every tag name you've ever used (for autocomplete)
   GET  /api/health            - basic liveness check
 
 Sessions belong to a real account (see auth.py) - a signed, HttpOnly cookie,
@@ -24,6 +27,10 @@ single origin at http://localhost:8000 - this matters because getUserMedia
 (camera access) requires a "secure context", and browsers treat
 http://localhost as secure even without TLS, so no separate HTTPS setup is
 needed for local use.
+
+Persistence is SQLAlchemy over DATABASE_URL (see database.py) - Postgres in
+production, SQLite for local dev. Every endpoint that touches the database
+takes `session: Session = Depends(get_db)`, one session per request.
 """
 
 import shutil
@@ -35,8 +42,11 @@ from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, Form, HTTPExcepti
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
 
 import db
+from database import SessionLocal, engine, get_db
+from models import Base
 from auth import (
     SESSION_MAX_AGE_SECONDS,
     create_session_token,
@@ -52,7 +62,14 @@ MIN_PASSWORD_LENGTH = 8
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    # In production this schema is owned by Alembic migrations (see
+    # backend/alembic/ - run `alembic upgrade head` as a deploy step); this
+    # call is a local-dev convenience so `uvicorn main:app --reload` keeps
+    # working against a throwaway SQLite file with zero setup. It's a no-op
+    # against a database Alembic already migrated (create_all only creates
+    # tables that don't exist yet, never alters ones that do), so it's safe
+    # to leave in for both cases rather than branching on environment.
+    Base.metadata.create_all(bind=engine)
     yield
 
 
@@ -133,14 +150,20 @@ def _set_session_cookie(response: Response, request: Request, user_id: int) -> N
 
 
 @app.post("/api/auth/signup")
-def signup(request: Request, response: Response, username: str = Form(...), password: str = Form(...)):
+def signup(
+    request: Request,
+    response: Response,
+    username: str = Form(...),
+    password: str = Form(...),
+    db_session: Session = Depends(get_db),
+):
     username = username.strip()
     if not username:
         raise HTTPException(status_code=422, detail="Choose a username")
     if len(password) < MIN_PASSWORD_LENGTH:
         raise HTTPException(status_code=422, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
     try:
-        user_id = db.create_user(username, hash_password(password))
+        user_id = db.create_user(db_session, username, hash_password(password))
     except db.UsernameTakenError:
         raise HTTPException(status_code=409, detail="That username is already taken") from None
     _set_session_cookie(response, request, user_id)
@@ -148,8 +171,14 @@ def signup(request: Request, response: Response, username: str = Form(...), pass
 
 
 @app.post("/api/auth/login")
-def login(request: Request, response: Response, username: str = Form(...), password: str = Form(...)):
-    user = db.get_user_by_username(username.strip())
+def login(
+    request: Request,
+    response: Response,
+    username: str = Form(...),
+    password: str = Form(...),
+    db_session: Session = Depends(get_db),
+):
+    user = db.get_user_by_username(db_session, username.strip())
     if user is None or not verify_password(password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
     _set_session_cookie(response, request, user["id"])
@@ -163,8 +192,8 @@ def logout(response: Response):
 
 
 @app.get("/api/auth/me")
-def me(user_id: int = Depends(get_current_user_id)):
-    user = db.get_user(user_id)
+def me(user_id: int = Depends(get_current_user_id), db_session: Session = Depends(get_db)):
+    user = db.get_user(db_session, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="Not signed in")
     return {"id": user["id"], "username": user["username"]}
@@ -177,6 +206,11 @@ def _run_processing_job(job_id: int, tmp_path: str, dev_mode: bool, user_id: int
     # request for its duration. The job row is how the frontend finds out
     # what happened instead of waiting on the response.
     #
+    # This runs outside any request's dependency-injection scope, so it
+    # can't reuse Depends(get_db) - it opens and closes its own session for
+    # its own lifetime, the same one-per-unit-of-work pattern, just not
+    # tied to an HTTP request.
+    #
     # Everything from here to the final update_job() is inside one try -
     # this used to end at process_video(), which left the save-to-history
     # step unprotected: if insert_session() ever raised (a locked DB, any
@@ -184,30 +218,34 @@ def _run_processing_job(job_id: int, tmp_path: str, dev_mode: bool, user_id: int
     # "processing" forever, and the frontend's poll loop would wait out its
     # full timeout and report a generic "taking longer than expected" with
     # no hint that a signed-in-only code path was the actual cause.
-    db.update_job(job_id, status="processing")
+    db_session = SessionLocal()
     try:
+        db.update_job(db_session, job_id, status="processing")
         try:
-            result = process_video(tmp_path, include_debug=dev_mode)
-        finally:
-            Path(tmp_path).unlink(missing_ok=True)
+            try:
+                result = process_video(tmp_path, include_debug=dev_mode)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
 
-        # Signed in -> save to that account's history. Anonymous -> just
-        # hand back the reading for this one clip; nothing is written to
-        # the DB, so there's nothing to clean up or associate with an
-        # account later.
-        if user_id is not None:
-            result["id"] = db.insert_session(user_id, result)
-        else:
-            result["id"] = None
-        result["saved"] = user_id is not None
-    except VitalsError as e:
-        db.update_job(job_id, status="failed", error=str(e))
-        return
-    except Exception as e:  # noqa: BLE001 - surface unexpected processing/storage errors to the client
-        db.update_job(job_id, status="failed", error=f"Processing failed: {e}")
-        return
+            # Signed in -> save to that account's history. Anonymous -> just
+            # hand back the reading for this one clip; nothing is written to
+            # the DB, so there's nothing to clean up or associate with an
+            # account later.
+            if user_id is not None:
+                result["id"] = db.insert_session(db_session, user_id, result)
+            else:
+                result["id"] = None
+            result["saved"] = user_id is not None
+        except VitalsError as e:
+            db.update_job(db_session, job_id, status="failed", error=str(e))
+            return
+        except Exception as e:  # noqa: BLE001 - surface unexpected processing/storage errors to the client
+            db.update_job(db_session, job_id, status="failed", error=f"Processing failed: {e}")
+            return
 
-    db.update_job(job_id, status="done", result=result)
+        db.update_job(db_session, job_id, status="done", result=result)
+    finally:
+        db_session.close()
 
 
 @app.post("/api/sessions/upload")
@@ -216,20 +254,25 @@ async def upload_session(
     video: UploadFile,
     dev_mode: bool = Form(False),
     user_id: int | None = Depends(get_current_user_id_optional),
+    db_session: Session = Depends(get_db),
 ):
     suffix = Path(video.filename or "clip.webm").suffix or ".webm"
     with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
         shutil.copyfileobj(video.file, tmp)
         tmp_path = tmp.name
 
-    job_id = db.create_job(user_id)
+    job_id = db.create_job(db_session, user_id)
     background_tasks.add_task(_run_processing_job, job_id, tmp_path, dev_mode, user_id)
     return {"job_id": job_id, "status": "pending"}
 
 
 @app.get("/api/jobs/{job_id}")
-def get_job_status(job_id: int, user_id: int | None = Depends(get_current_user_id_optional)):
-    job = db.get_job(job_id)
+def get_job_status(
+    job_id: int,
+    user_id: int | None = Depends(get_current_user_id_optional),
+    db_session: Session = Depends(get_db),
+):
+    job = db.get_job(db_session, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     # A job created anonymously has no owner to check against - polling it
@@ -258,16 +301,54 @@ async def detect_face(frame: UploadFile):
 
 
 @app.get("/api/sessions")
-def list_sessions(user_id: int = Depends(get_current_user_id)):
-    return db.get_sessions(user_id)
+def list_sessions(user_id: int = Depends(get_current_user_id), db_session: Session = Depends(get_db)):
+    return db.get_sessions(db_session, user_id)
 
 
 @app.delete("/api/sessions/{session_id}")
-def delete_session(session_id: int, user_id: int = Depends(get_current_user_id)):
-    deleted = db.delete_session(session_id, user_id)
+def delete_session(
+    session_id: int,
+    user_id: int = Depends(get_current_user_id),
+    db_session: Session = Depends(get_db),
+):
+    deleted = db.delete_session(db_session, session_id, user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"deleted": session_id}
+
+
+@app.post("/api/sessions/{session_id}/tags")
+def add_session_tag(
+    session_id: int,
+    name: str = Form(...),
+    user_id: int = Depends(get_current_user_id),
+    db_session: Session = Depends(get_db),
+):
+    name = name.strip().lower()
+    if not name:
+        raise HTTPException(status_code=422, detail="Tag can't be empty")
+    tags = db.add_tag(db_session, session_id, user_id, name)
+    if tags is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"tags": tags}
+
+
+@app.delete("/api/sessions/{session_id}/tags/{name}")
+def remove_session_tag(
+    session_id: int,
+    name: str,
+    user_id: int = Depends(get_current_user_id),
+    db_session: Session = Depends(get_db),
+):
+    tags = db.remove_tag(db_session, session_id, user_id, name)
+    if tags is None:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"tags": tags}
+
+
+@app.get("/api/tags")
+def list_tags(user_id: int = Depends(get_current_user_id), db_session: Session = Depends(get_db)):
+    return {"tags": db.list_tags(db_session, user_id)}
 
 
 FRONTEND_DIR = Path(__file__).parent.parent / "frontend"

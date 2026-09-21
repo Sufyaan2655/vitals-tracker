@@ -16,21 +16,46 @@ import cv2
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from models import Base
 
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch):
     # Point the app at throwaway DB + session-signing-secret files so this
-    # test run can't read/write real local state.
-    import db as db_module
-    monkeypatch.setattr(db_module, "DB_PATH", tmp_path / "test_vitals.db")
-
+    # test run can't read/write real local state - a fresh SQLAlchemy
+    # engine/session factory bound to a temp SQLite file, swapped in for
+    # database.py's real ones via FastAPI's own dependency-override
+    # mechanism (not monkeypatching internals main.py already imported by
+    # value) plus a direct patch of the background-task path, which opens
+    # its own session outside any request's dependency injection.
     import auth as auth_module
     monkeypatch.setattr(auth_module, "_SECRET_KEY_PATH", tmp_path / "test_session_secret")
 
+    test_engine = create_engine(
+        f"sqlite:///{tmp_path / 'test_vitals.db'}", connect_args={"check_same_thread": False}
+    )
+    TestSessionLocal = sessionmaker(bind=test_engine, autoflush=False, autocommit=False, future=True)
+    Base.metadata.create_all(bind=test_engine)
+
     import main
-    with TestClient(main.app) as c:
-        yield c
+    monkeypatch.setattr(main, "SessionLocal", TestSessionLocal)
+
+    def override_get_db():
+        session = TestSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    main.app.dependency_overrides[main.get_db] = override_get_db
+    try:
+        with TestClient(main.app) as c:
+            yield c
+    finally:
+        main.app.dependency_overrides.clear()
 
 
 def signup(client, username="test_user", password="correct horse battery"):
@@ -300,6 +325,43 @@ def test_upload_endpoint_dev_mode_returns_tracking_and_signal_debug_data(client,
     # dev_mode defaults to off and must not add this payload
     plain_job = _upload_and_wait(client, clip_path, dev_mode=False)
     assert "debug" not in plain_job["result"]
+
+
+def test_tag_a_session_then_see_it_in_history_and_tag_list(client, tmp_path):
+    signup(client, "tag_user")
+    clip_path = str(tmp_path / "clip.mp4")
+    _write_synthetic_clip(clip_path, bpm=70, duration_s=8)
+    session_id = _upload_and_wait(client, clip_path)["result"]["id"]
+
+    add = client.post(f"/api/sessions/{session_id}/tags", data={"name": "Resting"})
+    assert add.status_code == 200, add.text
+    # Tags are normalized to lowercase server-side, so "Resting" and
+    # "resting" attached separately end up as the same tag, not two.
+    assert add.json()["tags"] == ["resting"]
+
+    add_again = client.post(f"/api/sessions/{session_id}/tags", data={"name": "morning"})
+    assert sorted(add_again.json()["tags"]) == ["morning", "resting"]
+
+    history = client.get("/api/sessions").json()
+    assert sorted(history[0]["tags"]) == ["morning", "resting"]
+
+    all_tags = client.get("/api/tags").json()
+    assert sorted(all_tags["tags"]) == ["morning", "resting"]
+
+    remove = client.delete(f"/api/sessions/{session_id}/tags/morning")
+    assert remove.status_code == 200
+    assert remove.json()["tags"] == ["resting"]
+
+
+def test_tag_endpoints_require_owning_account(client, tmp_path):
+    signup(client, "tag_owner")
+    clip_path = str(tmp_path / "clip.mp4")
+    _write_synthetic_clip(clip_path, bpm=70, duration_s=8)
+    session_id = _upload_and_wait(client, clip_path)["result"]["id"]
+
+    signup(client, "not_the_owner")
+    add = client.post(f"/api/sessions/{session_id}/tags", data={"name": "resting"})
+    assert add.status_code == 404
 
 
 def test_delete_session_removes_it_from_history(client, tmp_path):

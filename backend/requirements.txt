@@ -6,3 +6,6 @@ numpy>=1.26
 scipy>=1.12
 pytest>=8.0
 httpx2>=2.13
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg[binary]>=3.1
