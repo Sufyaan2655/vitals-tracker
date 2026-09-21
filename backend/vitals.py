@@ -149,6 +149,51 @@ def _prefer_subharmonic_if_present(freqs: np.ndarray, magnitude: np.ndarray, pea
     return peak_idx
 
 
+# A single FFT over the whole clip gives one number, and one number has no
+# defense against a single bad moment: a brief lighting change (a webcam's
+# auto-exposure/white-balance hunting, not just flicker - flicker itself is
+# far above the heart-rate band and the filter already removes it) or a
+# flinch of head motion partway through a clip can dominate a whole-clip
+# spectrum even when the rest of the recording is clean, and "lighting
+# isn't too bad" is exactly the situation where the problem is a few bad
+# seconds, not a uniformly noisy signal. Splitting the (already filtered)
+# signal into overlapping windows and taking the *median* of each window's
+# own estimate means a transient artifact only corrupts the handful of
+# windows it actually overlaps - the majority of clean windows outvote it.
+HEART_RATE_WINDOW_SECONDS = 6.0
+HEART_RATE_WINDOW_STEP_SECONDS = 1.5
+HEART_RATE_MIN_WINDOWS_FOR_CONSENSUS = 3
+
+
+def robust_heart_rate_bpm(hr_filtered: np.ndarray, fs: float) -> float:
+    """Heart rate from the median of several overlapping-window estimates
+    rather than one FFT over the entire (already band-pass filtered) clip.
+    Falls back to a single full-clip estimate when the clip is too short to
+    usefully window - a 15-second clip at typical webcam fps comfortably
+    produces several 6-second windows; a clip near the 5-second processing
+    minimum does not, and forcing a window there would just be a noisier
+    version of the same single estimate.
+    """
+    signal = np.asarray(hr_filtered, dtype=np.float64)
+    n = len(signal)
+    window_n = int(HEART_RATE_WINDOW_SECONDS * fs)
+    step_n = max(int(HEART_RATE_WINDOW_STEP_SECONDS * fs), 1)
+
+    if window_n < 4 or n < window_n * 1.5:
+        return dominant_frequency_bpm(signal, fs, prefer_fundamental=True)
+
+    estimates = []
+    start = 0
+    while start + window_n <= n:
+        estimates.append(dominant_frequency_bpm(signal[start:start + window_n], fs, prefer_fundamental=True))
+        start += step_n
+
+    if len(estimates) < HEART_RATE_MIN_WINDOWS_FOR_CONSENSUS:
+        return dominant_frequency_bpm(signal, fs, prefer_fundamental=True)
+
+    return float(np.median(estimates))
+
+
 def is_plausible_bpm(value: float, plausible_range: tuple[float, float]) -> bool:
     """Whether `value` falls inside a resting-plausible sub-range - a check
     independent of signal_quality/confidence, since confidence measures how
@@ -281,7 +326,7 @@ def estimate_vitals_from_signals(
     """
     green_detrended = detrend(green_signal)
     hr_filtered = bandpass_filter(green_detrended, fps, *HEART_RATE_BAND_HZ)
-    heart_rate = dominant_frequency_bpm(hr_filtered, fps, prefer_fundamental=True)
+    heart_rate = robust_heart_rate_bpm(hr_filtered, fps)
     heart_confidence = signal_quality(hr_filtered, fps, HEART_RATE_BAND_HZ)
 
     chest_detrended = detrend(chest_flow_signal)

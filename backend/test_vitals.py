@@ -28,6 +28,7 @@ from vitals import (
     fft_spectrum,
     forehead_roi_bounds,
     is_plausible_bpm,
+    robust_heart_rate_bpm,
     signal_quality,
     _resolve_fps,
     _prefer_subharmonic_if_present,
@@ -117,6 +118,65 @@ def test_bandpass_filter_rejects_out_of_band_frequency():
     filtered = bandpass_filter(drift + pulse, fs, *HEART_RATE_BAND_HZ)
     estimated_bpm = dominant_frequency_bpm(filtered, fs)
     assert abs(estimated_bpm - 72) <= 2.0
+
+
+@pytest.mark.parametrize("bpm", [50, 75, 95, 125])
+def test_robust_heart_rate_bpm_recovers_known_rate_on_a_clean_signal(bpm):
+    fs = 30.0
+    signal = make_sine(bpm / 60.0, fs, duration_s=15, noise_std=0.3, seed=bpm + 1000)
+    filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
+    estimated = robust_heart_rate_bpm(filtered, fs)
+    assert abs(estimated - bpm) <= 3.0, f"expected ~{bpm} bpm, got {estimated:.1f}"
+
+
+def test_robust_heart_rate_bpm_falls_back_to_single_window_on_a_short_clip():
+    """A clip too short to produce several windows (near the 5s processing
+    minimum) must not crash or silently return nonsense - it falls back to
+    the same single full-clip estimate dominant_frequency_bpm would give."""
+    fs = 30.0
+    signal = make_sine(72 / 60.0, fs, duration_s=6, noise_std=0.2, seed=42)
+    filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
+    robust = robust_heart_rate_bpm(filtered, fs)
+    single = dominant_frequency_bpm(filtered, fs, prefer_fundamental=True)
+    assert robust == single
+
+
+def test_robust_heart_rate_bpm_resists_a_brief_lighting_glitch_that_fools_a_single_fft():
+    """Reproduces the reported complaint: a real reading spikes even though
+    lighting "isn't too bad" - i.e. the clip is clean for most of its
+    length but a short stretch (an auto-exposure/white-balance adjustment,
+    a flinch of motion) is badly corrupted. A single whole-clip FFT can get
+    dominated by that one bad stretch; the windowed-median estimate should
+    still land near the true rate because most of its windows never touch
+    the corrupted stretch."""
+    fs = 30.0
+    duration_s = 30
+    true_bpm = 70
+    f0 = true_bpm / 60.0
+    t = np.arange(0, duration_s, 1.0 / fs)
+
+    clean = np.sin(2 * np.pi * f0 * t)
+    # A short, strong burst at a completely different rate overwrites a
+    # 2-second stretch in the middle of an otherwise clean 30-second clip -
+    # strong enough to dominate a naive whole-clip FFT, brief enough that
+    # only a minority of the windowed estimator's overlapping windows ever
+    # touch it.
+    glitch_start_s, glitch_end_s = 13.0, 17.0
+    glitch_mask = (t >= glitch_start_s) & (t < glitch_end_s)
+    decoy_bpm = 150
+    signal = clean.copy()
+    signal[glitch_mask] = 12.0 * np.sin(2 * np.pi * (decoy_bpm / 60.0) * t[glitch_mask])
+
+    filtered = bandpass_filter(signal, fs, *HEART_RATE_BAND_HZ)
+
+    naive = dominant_frequency_bpm(filtered, fs, prefer_fundamental=True)
+    robust = robust_heart_rate_bpm(filtered, fs)
+
+    assert abs(naive - true_bpm) > 10, (
+        f"test setup didn't actually fool the naive estimate (got {naive:.1f} bpm) - "
+        "strengthen the glitch so this test is checking something real"
+    )
+    assert abs(robust - true_bpm) <= 5.0, f"expected ~{true_bpm} bpm, got {robust:.1f} (glitch still won)"
 
 
 def test_signal_quality_is_higher_for_clean_periodic_signal_than_noise():

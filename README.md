@@ -32,6 +32,15 @@ reflects by a tiny, invisible-to-the-eye amount. The app:
    half-frequency is treated as the true pulse rate instead. Caught with a
    real reference: an Apple Watch reading of ~55–60 bpm against this app's
    reported 120 bpm — a near-exact 2x error, the textbook symptom.
+6. Doesn't trust one FFT over the whole clip. A single whole-clip spectrum
+   has no defense against a bad moment — a webcam's auto-exposure or
+   white-balance hunting for a couple of seconds, a flinch of motion — that
+   can dominate the entire reading even when the rest of the clip is clean,
+   which shows up as a reading that spikes even though the lighting "isn't
+   too bad." Instead, the heart-rate estimate is the **median of several
+   overlapping 6-second windows** across the clip: a transient artifact
+   only corrupts the handful of windows it actually overlaps, and the
+   majority of clean windows outvote it.
 
 **Breathing rate.** Same idea, but using *motion* instead of *color*: breathing
 causes small, slow shoulder/chest movement. The app computes optical flow in
