@@ -86,6 +86,11 @@ const monitorInterval = document.getElementById("monitorInterval");
 const monitorStatus = document.getElementById("monitorStatus");
 
 const RECORD_SECONDS = 15;
+// Keeps a 15s clip well under Vercel's ~4.5MB request body limit regardless
+// of what a given device's camera/encoder would otherwise pick - phone
+// cameras in particular default to a much higher bitrate than this app's
+// low-res forehead-ROI signal extraction actually needs.
+const RECORD_VIDEO_BITS_PER_SECOND = 800_000;
 // Must match backend/vitals.py's HEART_RATE_BAND_HZ / BREATHING_BAND_HZ - the
 // (deliberately wide) range the FFT peak is picked from, so it can find a
 // signal at all.
@@ -118,6 +123,7 @@ const COLORS = {
 let mediaStream = null;
 let mediaRecorder = null;
 let recordedChunks = [];
+let recordedMimeType = "video/webm";
 let cameraOn = false;
 let isRecording = false;
 let chart = null;
@@ -374,7 +380,12 @@ startCameraBtn.addEventListener("click", () => {
 async function enableCamera() {
   try {
     mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, height: 480, facingMode: "user" },
+      // `max` (not just `ideal`) matters on phones - a bare ideal hint is
+      // routinely ignored in favor of the camera's native resolution, which
+      // on a phone can be several times a laptop webcam's, ballooning the
+      // recorded file for no benefit (rPPG only needs a small, stable
+      // forehead ROI, not high resolution).
+      video: { width: { ideal: 640, max: 640 }, height: { ideal: 480, max: 480 }, facingMode: "user" },
       audio: false,
     });
     preview.srcObject = mediaStream;
@@ -424,10 +435,21 @@ function startRecording({ silent }) {
     recordedChunks = [];
     isRecording = true;
 
-    const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
+    // Safari/iOS supports neither webm variant - MediaRecorder there only
+    // takes mp4. Falling through to an unconditional "video/webm" (the old
+    // behavior) throws a NotSupportedError on that platform instead of
+    // recording anything, so mp4 has to be a real fallback, not an
+    // afterthought. recordedMimeType is what the resulting Blob and upload
+    // filename are actually tagged with, further down.
+    recordedMimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp8")
       ? "video/webm;codecs=vp8"
-      : "video/webm";
-    mediaRecorder = new MediaRecorder(mediaStream, { mimeType });
+      : MediaRecorder.isTypeSupported("video/webm")
+        ? "video/webm"
+        : "video/mp4";
+    mediaRecorder = new MediaRecorder(mediaStream, {
+      mimeType: recordedMimeType,
+      videoBitsPerSecond: RECORD_VIDEO_BITS_PER_SECOND,
+    });
 
     mediaRecorder.ondataavailable = (e) => {
       if (e.data.size > 0) recordedChunks.push(e.data);
@@ -462,11 +484,15 @@ function startRecording({ silent }) {
 
 async function handleRecordingComplete({ silent = false } = {}) {
   if (!silent) setStatus("Processing clip (detecting face, extracting pulse signal)...");
-  const blob = new Blob(recordedChunks, { type: "video/webm" });
+  const blob = new Blob(recordedChunks, { type: recordedMimeType });
   const devMode = !silent && devModeToggle.checked;
+  // Extension has to match what was actually recorded (webm vs Safari's
+  // mp4) - the backend picks its temp-file suffix from this filename, and a
+  // mismatched container/extension can confuse OpenCV's decoder.
+  const extension = recordedMimeType.startsWith("video/mp4") ? "mp4" : "webm";
 
   const formData = new FormData();
-  formData.append("video", blob, "clip.webm");
+  formData.append("video", blob, `clip.${extension}`);
   formData.append("dev_mode", devMode ? "true" : "false");
 
   try {
