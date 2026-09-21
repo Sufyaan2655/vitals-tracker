@@ -775,6 +775,13 @@ video:focus-visible {
   left: 0;
   width: 100%;
   height: 100%;
+  /* Must match .preview-wrap video's object-fit. The video crops to fill
+     this box whenever the camera's native aspect ratio isn't 4:3 (true of
+     virtually every phone camera) - without the same object-fit here, the
+     canvas instead stretches the full uncropped frame to fill the box, so
+     tracking boxes (drawn in native video pixel coordinates) land wherever
+     that stretch happens to put them instead of on the actual face. */
+  object-fit: cover;
   pointer-events: none;
 }
 

@@ -19,14 +19,16 @@ async function safeJson(res) {
 // Video processing runs as a background job (see main.py) rather than
 // blocking the upload request - the upload returns a job id immediately,
 // and this polls /api/jobs/{id} until it lands on done or failed.
-async function pollJob(jobId, { intervalMs = 700, timeoutMs = 30000 } = {}) {
+async function pollJob(jobId, { intervalMs = 700, timeoutMs = 60000, onTick } = {}) {
   const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
   while (Date.now() < deadline) {
     const res = await authedFetch(`${API_BASE}/api/jobs/${jobId}`);
     const job = await safeJson(res);
     if (!res.ok) throw new Error(job.detail || "Couldn't check processing status");
     if (job.status === "done") return job.result;
     if (job.status === "failed") throw new Error(job.error || "Processing failed");
+    if (onTick) onTick(Date.now() - startedAt);
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
   throw new Error("Processing is taking longer than expected - try again");
@@ -508,8 +510,18 @@ async function handleRecordingComplete({ silent = false } = {}) {
 
     // Upload just hands back a job id - the actual face detection/FFT work
     // happens in a background task on the server so this request doesn't
-    // block for the several seconds processing takes.
-    const data = await pollJob(upload.job_id);
+    // block for the several seconds processing takes. On a hosted deploy
+    // the first request in a while also eats a cold-start delay loading
+    // opencv/numpy, on top of that - so this can take noticeably longer
+    // than it does running locally; the status message says so rather than
+    // just sitting on "Processing clip..." with no explanation.
+    const data = await pollJob(upload.job_id, {
+      onTick: (elapsedMs) => {
+        if (!silent && elapsedMs > 6000) {
+          setStatus("Still working - a server that's been idle takes a few extra seconds to start up...");
+        }
+      },
+    });
 
     if (!silent) {
       showResult(data);
